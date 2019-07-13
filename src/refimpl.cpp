@@ -1,21 +1,19 @@
-﻿//
-#define WIN32_LEAN_AND_MEAN
+﻿#define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include <windows.h>
-//
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <limits>
 #include <vector>
-#include <array>
-//
-#include "rayrun.hpp"
+#include <windows.h>
 
-//
-BOOL APIENTRY DllMain(HMODULE hModule,
-    DWORD  ul_reason_for_call,
-    LPVOID lpReserved
-)
+#include "rayrun.hpp"
+#include "vec.hpp"
+
+BOOL APIENTRY
+DllMain(HMODULE hModule,
+    DWORD ul_reason_for_call,
+    LPVOID lpReserved)
 {
     switch (ul_reason_for_call)
     {
@@ -27,126 +25,6 @@ BOOL APIENTRY DllMain(HMODULE hModule,
     }
     return TRUE;
 }
-
-//
-class Vec3
-{
-public:
-    Vec3() = default;
-    Vec3(float x, float y, float z)
-        :x_(x), y_(y), z_(z)
-    {}
-    Vec3(float xyz)
-        :x_(xyz), y_(xyz), z_(xyz)
-    {}
-    Vec3(const float* ptr)
-        :x_(ptr[0]), y_(ptr[1]), z_(ptr[2])
-    {}
-    Vec3(const Vec3& other)
-        :x_(other.x_), y_(other.y_), z_(other.z_)
-    {}
-    float x() const { return x_; }
-    float y() const { return y_; }
-    float z() const { return z_; }
-    //
-    float lengthSq() const
-    {
-        return x_ * x_ + y_ * y_ + z_ * z_;
-    }
-    float length() const
-    {
-        return std::sqrt(lengthSq());
-    }
-    void normalize()
-    {
-        const float il = 1.0f / length();
-        x_ *= il;
-        y_ *= il;
-        z_ *= il;
-    }
-    Vec3 normalized() const
-    {
-        Vec3 ret = *this;
-        ret.normalize();
-        return ret;
-    }
-    //
-    Vec3 operator + (Vec3 other) const
-    {
-        return
-            Vec3(
-                x_ + other.x_,
-                y_ + other.y_,
-                z_ + other.z_);
-    }
-    Vec3 operator - (Vec3 other) const
-    {
-        return
-            Vec3(
-                x_ - other.x_,
-                y_ - other.y_,
-                z_ - other.z_);
-    }
-    Vec3 operator * (Vec3 other) const
-    {
-        return
-            Vec3(
-                x_ * other.x_,
-                y_ * other.y_,
-                z_ * other.z_);
-    }
-    Vec3 operator / (Vec3 other) const
-    {
-        return
-            Vec3(
-                x_ / other.x_,
-                y_ / other.y_,
-                z_ / other.z_);
-    }
-    const float& operator[](int32_t index) const
-    {
-        return *(&x_ + index);
-    }
-    //
-    static float dot(Vec3 rhs, Vec3 lhs)
-    {
-        return
-            rhs.x_ * lhs.x_ +
-            rhs.y_ * lhs.y_ +
-            rhs.z_ * lhs.z_;
-    }
-    static Vec3 cross(Vec3 rhs, Vec3 lhs)
-    {
-        return
-            Vec3(
-                rhs.y_ * lhs.z_ - rhs.z_ * lhs.y_,
-                rhs.z_ * lhs.x_ - rhs.x_ * lhs.z_,
-                rhs.x_ * lhs.y_ - rhs.y_ * lhs.x_);
-    }
-    static float distance(Vec3 rhs, Vec3 lhs)
-    {
-        ;
-        return (rhs - lhs).length();
-    }
-    static Vec3 min(Vec3 lhs, Vec3 rhs)
-    {
-        const float x = std::min(lhs.x(), rhs.x());
-        const float y = std::min(lhs.y(), rhs.y());
-        const float z = std::min(lhs.z(), rhs.z());
-        return Vec3(x, y, z);
-    }
-    static Vec3 max(Vec3 lhs, Vec3 rhs)
-    {
-        const float x = std::max(lhs.x(), rhs.x());
-        const float y = std::max(lhs.y(), rhs.y());
-        const float z = std::max(lhs.z(), rhs.z());
-        return Vec3(x, y, z);
-    }
-private:
-    float x_;
-    float y_;
-    float z_;
-};
 
 //
 struct RayExt
@@ -184,10 +62,10 @@ public:
         mn = Vec3(maxv, maxv, maxv);
         mx = Vec3(minv, minv, minv);
     }
-    void addPoint(Vec3 point)
-    {
-        mn = Vec3::min(point, mn);
-        mx = Vec3::max(point, mx);
+    void addPoint(Vec3 point) 
+	{
+      mn = Vec3::min(point, mn);
+      mx = Vec3::max(point, mx);
     }
     Vec3 center() const
     {
@@ -252,7 +130,6 @@ public:
         return (tmin < currentIntersectT) && (ray.tnear < tmax) && (tmin < ray.tfar);
     }
 
-
 private:
     Vec3 mn;
     Vec3 mx;
@@ -297,7 +174,7 @@ bool intersectTriangle(
     // vも同様の計算
     Q = Vec3::cross(T, e1);
     v = Vec3::dot(ray.dir, Q) * inv_det;
-    if (v < 0.0f || u + v  > 1.0f)
+    if (v < 0.0f || u + v > 1.0f)
     {
         return false;
     }
@@ -334,7 +211,8 @@ class SimpleBVH
 {
 public:
     SimpleBVH()
-    {}
+    {
+    }
     virtual ~SimpleBVH() {}
     bool construct(
         const std::vector<Vec3>& vs,
@@ -368,7 +246,7 @@ public:
             triangles.push_back(tri);
         }
         //
-        nodes_.reserve(faceNum*2);
+        nodes_.reserve(faceNum * 2);
         nodes_.resize(1);
         constructNode(0, triangles.data(), (int32_t)triangles.size(), 0);
         nodes_.shrink_to_fit();
@@ -384,14 +262,8 @@ public:
             const Node& node = nodes_[hitNodeIdx];
             const float u = ray.u;
             const float v = ray.v;
-            ray.isect =
-                node.v[0] * (1.0f - u - v) +
-                node.v[1] * u +
-                node.v[2] * v;
-            ray.ns = 
-                node.n[0] * (1.0f - u - v) +
-                node.n[1] * u +
-                node.n[2] * v;
+            ray.isect = node.v[0] * (1.0f - u - v) + node.v[1] * u + node.v[2] * v;
+            ray.ns = node.n[0] * (1.0f - u - v) + node.n[1] * u + node.n[2] * v;
             ray.faceid = node.faceid;
         }
         return isHit;
@@ -442,7 +314,7 @@ private:
         curNode.childlen[0] = -1;
         curNode.childlen[1] = -1;
         curNode.aabb.clear();
-        for(int32_t triNo=0;triNo< numTriangle;++triNo)
+        for (int32_t triNo = 0; triNo < numTriangle; ++triNo)
         {
             curNode.aabb.addAABB(triangles[triNo].aabb);
         }
@@ -500,8 +372,8 @@ private:
         {
             auto& v = node.v;
             if (intersectTriangle(
-                ray,
-                v[0], v[1], v[2]))
+                    ray,
+                    v[0], v[1], v[2]))
             {
                 *hitNodeIndex = nodeIndex;
                 return true;
@@ -540,7 +412,7 @@ void preprocess(
     //
     std::vector<Vec3> verts;
     verts.reserve(numVerts);
-    for (size_t vi=0;vi< numVerts;++vi)
+    for (size_t vi = 0; vi < numVerts; ++vi)
     {
         verts.push_back(
             Vec3(vertices[vi * 3 + 0],
@@ -568,11 +440,9 @@ void preprocess(
             indices[fi * 6 + 2],
             indices[fi * 6 + 4]
         };
-        face.idxNorm = { {
-            indices[fi * 6 + 1],
+        face.idxNorm = { { indices[fi * 6 + 1],
             indices[fi * 6 + 3],
-            indices[fi * 6 + 5]
-        } };
+            indices[fi * 6 + 5] } };
         fs.push_back(face);
     }
     //
@@ -587,17 +457,14 @@ void intersect(
 {
     static_cast<void>(hitany);
     //
-    for (int32_t nr=0;nr<numRay;++nr)
+    for (int32_t nr = 0; nr < numRay; ++nr)
     {
         Ray& ray = rays[nr];
         RayExt rayExt;
         rayExt.pos = ray.pos;
         rayExt.dir = ray.dir;
-        const auto invSafe = [](float v)
-        {
-            return
-                (v == 0.0f) ?
-                std::numeric_limits<float>::infinity() : 1.0f / v;
+        const auto invSafe = [](float v) {
+            return (v == 0.0f) ? std::numeric_limits<float>::infinity() : 1.0f / v;
         };
         rayExt.dinv = Vec3(
             invSafe(rayExt.dir.x()),
@@ -627,4 +494,3 @@ void intersect(
         }
     }
 }
- 

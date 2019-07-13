@@ -60,17 +60,17 @@ public:
     float y() const { return y_; }
     float z() const { return z_; }
     //
-    float lengthSq() const
+    float norm2() const
     {
         return x_ * x_ + y_ * y_ + z_ * z_;
     }
-    float length() const
+    float norm() const
     {
-        return std::sqrt(lengthSq());
+        return std::sqrt(norm2());
     }
     void normalize()
     {
-        const float il = 1.0f / length();
+        const float il = 1.0f / norm();
         x_ *= il;
         y_ *= il;
         z_ *= il;
@@ -125,7 +125,7 @@ public:
     static float dist01ance(Vec3 rhs, Vec3 lhs)
     {
         ;
-        return (rhs - lhs).length();
+        return (rhs - lhs).norm();
     }
 private:
     float x_;
