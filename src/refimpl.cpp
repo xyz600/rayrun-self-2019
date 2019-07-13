@@ -26,7 +26,8 @@ DllMain(HMODULE hModule,
     return TRUE;
 }
 
-//
+using vector::Vec3;
+
 struct RayExt
 {
 public:
@@ -59,13 +60,13 @@ public:
     {
         const float maxv = std::numeric_limits<float>::max();
         const float minv = std::numeric_limits<float>::lowest();
-        mn = Vec3(maxv, maxv, maxv);
-        mx = Vec3(minv, minv, minv);
+        mn = Vec3 {maxv, maxv, maxv};
+        mx = Vec3 {minv, minv, minv};
     }
-    void addPoint(Vec3 point) 
+    void addPoint(const Vec3 &point) 
 	{
-      mn = Vec3::min(point, mn);
-      mx = Vec3::max(point, mx);
+      mn = vector::min(point, mn);
+      mx = vector::max(point, mx);
     }
     Vec3 center() const
     {
@@ -85,8 +86,8 @@ public:
     }
     void addAABB(const AABB& aabb)
     {
-        mn = Vec3::min(aabb.mn, mn);
-        mx = Vec3::max(aabb.mx, mx);
+        mn = vector::min(aabb.mn, mn);
+        mx = vector::max(aabb.mx, mx);
     }
     const Vec3& AABB::operator[](int32_t index) const
     {
@@ -155,9 +156,9 @@ bool intersectTriangle(
     e1 = v1 - v0;
     e2 = v2 - v0;
     // detとuの準備
-    P = Vec3::cross(ray.dir, e2);
+    P = vector::cross(ray.dir, e2);
     // ほぼ平行な場合かをチェック
-    det = Vec3::dot(e1, P);
+    det = vector::dot(e1, P);
     if (det == 0.0f)
     {
         return false;
@@ -166,20 +167,20 @@ bool intersectTriangle(
     // レイ原点からv0への距離
     T = ray.pos - v0;
     // uを計算し、範囲内に収まっているかをチェック
-    u = Vec3::dot(T, P) * inv_det;
+    u = vector::dot(T, P) * inv_det;
     if (u < 0.0f || u > 1.0f)
     {
         return false;
     }
     // vも同様の計算
-    Q = Vec3::cross(T, e1);
-    v = Vec3::dot(ray.dir, Q) * inv_det;
+    Q = vector::cross(T, e1);
+    v = vector::dot(ray.dir, Q) * inv_det;
     if (v < 0.0f || u + v > 1.0f)
     {
         return false;
     }
     // tの範囲チェック
-    t = Vec3::dot(e2, Q) * inv_det;
+    t = vector::dot(e2, Q) * inv_det;
     if (t < ray.tnear || ray.tfar < t)
     {
         return false;
@@ -239,9 +240,9 @@ public:
             tri.n[1] = ns[face.idxNorm[1]];
             tri.n[2] = ns[face.idxNorm[2]];
             tri.aabb.clear();
-            tri.aabb.addPoint(Vec3(tri.v[0]));
-            tri.aabb.addPoint(Vec3(tri.v[1]));
-            tri.aabb.addPoint(Vec3(tri.v[2]));
+            tri.aabb.addPoint(tri.v[0]);
+            tri.aabb.addPoint(tri.v[1]);
+            tri.aabb.addPoint(tri.v[2]);
             tri.faceid = faceNo;
             triangles.push_back(tri);
         }
@@ -414,20 +415,22 @@ void preprocess(
     verts.reserve(numVerts);
     for (size_t vi = 0; vi < numVerts; ++vi)
     {
-        verts.push_back(
-            Vec3(vertices[vi * 3 + 0],
-                vertices[vi * 3 + 1],
-                vertices[vi * 3 + 2]));
+        verts.push_back(Vec3 {
+			vertices[vi * 3 + 0],
+            vertices[vi * 3 + 1],
+            vertices[vi * 3 + 2]
+		});
     }
     //
     std::vector<Vec3> ns;
     ns.reserve(numNormals);
     for (size_t ni = 0; ni < numNormals; ++ni)
     {
-        ns.push_back(
-            Vec3(normals[ni * 3 + 0],
-                normals[ni * 3 + 1],
-                normals[ni * 3 + 2]));
+        ns.push_back(Vec3{
+			normals[ni * 3 + 0],
+            normals[ni * 3 + 1],
+            normals[ni * 3 + 2]
+		});
     }
     //
     std::vector<Face> fs;
@@ -466,10 +469,11 @@ void intersect(
         const auto invSafe = [](float v) {
             return (v == 0.0f) ? std::numeric_limits<float>::infinity() : 1.0f / v;
         };
-        rayExt.dinv = Vec3(
+        rayExt.dinv = Vec3 {
             invSafe(rayExt.dir.x()),
             invSafe(rayExt.dir.y()),
-            invSafe(rayExt.dir.z()));
+            invSafe(rayExt.dir.z())
+		};
         rayExt.sign[0] = (ray.dir[0] < 0.0f);
         rayExt.sign[1] = (ray.dir[1] < 0.0f);
         rayExt.sign[2] = (ray.dir[2] < 0.0f);
