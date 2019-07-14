@@ -38,8 +38,8 @@ float AABB::area() const noexcept {
 
 AABB::AABB() noexcept { clear(); }
 void AABB::clear() noexcept {
-  min_position.fill(std::numeric_limits<float>::max());
-  max_position.fill(std::numeric_limits<float>::min());
+  min_position.fill(std::numeric_limits<float>::max() / 2);
+  max_position.fill(-std::numeric_limits<float>::max() / 2);
 }
 
 void AABB::enlarge(const Vec3 &point) noexcept {
