@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <limits>
+#include <memory>
 #include <vector>
 #include <windows.h>
 
@@ -32,39 +33,41 @@ using vector::Vec3;
 -------------------------------------------------
 */
 
-SimpleBVH g_bvh;
+static SimpleBVH g_bvh;
 
 //
 void preprocess(const float *vertices, size_t numVerts, const float *normals,
                 size_t numNormals, const uint32_t *indices, size_t numFace) {
-  //
+
   std::vector<Vec3> verts;
   verts.reserve(numVerts);
   for (size_t vi = 0; vi < numVerts; ++vi) {
-    verts.push_back(
-        Vec3{vertices[vi * 3 + 0], vertices[vi * 3 + 1], vertices[vi * 3 + 2]});
+    verts.push_back(Vec3(
+        {vertices[vi * 3 + 0], vertices[vi * 3 + 1], vertices[vi * 3 + 2]}));
   }
-  //
+
   std::vector<Vec3> ns;
   ns.reserve(numNormals);
   for (size_t ni = 0; ni < numNormals; ++ni) {
     ns.push_back(
         Vec3{normals[ni * 3 + 0], normals[ni * 3 + 1], normals[ni * 3 + 2]});
   }
-  //
+
   std::vector<Face> fs;
   fs.reserve(numFace);
   for (size_t fi = 0; fi < numFace; ++fi) {
     Face face;
-    face.idxVtx = {indices[fi * 6 + 0], indices[fi * 6 + 2],
-                   indices[fi * 6 + 4]};
-    face.idxNorm = {
-        {indices[fi * 6 + 1], indices[fi * 6 + 3], indices[fi * 6 + 5]}};
+    face.vertex_index = {indices[fi * 6 + 0], indices[fi * 6 + 2],
+                         indices[fi * 6 + 4]};
+    face.normal_index = {indices[fi * 6 + 1], indices[fi * 6 + 3],
+                         indices[fi * 6 + 5]};
     fs.push_back(face);
   }
+
+  MeshTriangleList mesh_list(std::move(fs), std::move(verts), std::move(ns));
+
   //
-  g_bvh = SimpleBVH();
-  g_bvh.construct(verts, ns, fs);
+  g_bvh.construct(std::move(mesh_list));
 }
 
 void intersect(Ray *rays, size_t numRay, bool hitany) {

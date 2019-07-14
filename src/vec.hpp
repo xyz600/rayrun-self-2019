@@ -189,6 +189,8 @@ public:
 
   constexpr std::size_t size() const noexcept;
 
+  void fill(const T value) noexcept;
+
 private:
   std::array<T, D> data_;
 };
@@ -204,7 +206,7 @@ std::ostream &operator<<(std::ostream &out, const Point<T, D> &point) {
 }
 
 template <typename T, std::size_t D> Point<T, D>::Point() noexcept {
-  std::fill(data_.begin(), data_.end(), 0);
+  std::fill(data_.begin(), data_.end(), static_cast<T>(0));
 }
 
 template <typename T, std::size_t D>
@@ -228,6 +230,11 @@ Point<T, D>::Point(const PointType &src) {
 template <typename T, std::size_t D>
 constexpr std::size_t Point<T, D>::size() const noexcept {
   return D;
+}
+
+template <typename T, std::size_t D>
+void Point<T, D>::fill(const T value) noexcept {
+  std::fill(data_.begin(), data_.end(), value);
 }
 
 template <typename T, std::size_t D>

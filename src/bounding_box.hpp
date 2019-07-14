@@ -1,57 +1,80 @@
 #pragma once
 
 #include "ray.hpp"
+#include "triangle.hpp"
 #include "vec.hpp"
 
 using vector::Vec3;
 
 class AABB {
 public:
-  AABB();
-  void clear();
-  void extend(const Vec3 &point);
-  void extend(const AABB &aabb);
-  const Vec3 &center() const;
-  const Vec3 &min() const;
-  const Vec3 &max() const;
-  Vec3 size() const;
-  const Vec3 &operator[](int32_t index) const;
-  bool intersectCheck(const RayExt &ray, float currentIntersectT) const;
+  AABB() noexcept;
+  void clear() noexcept;
+  void enlarge(const Vec3 &point) noexcept;
+  void enlarge(const AABB &aabb) noexcept;
+  void enlarge(const MeshTriangle &aabb) noexcept;
+
+  float area() const noexcept;
+
+  void center(Vec3 *result) const noexcept;
+  const Vec3 &min() const noexcept;
+  const Vec3 &max() const noexcept;
+  Vec3 size() const noexcept;
+  const Vec3 &operator[](int32_t index) const noexcept;
+  bool intersectCheck(const RayExt &ray, float currentIntersectT) const
+      noexcept;
 
 private:
-  Vec3 mn;
-  Vec3 mx;
+  Vec3 min_position;
+  Vec3 max_position;
 };
 
-AABB::AABB() { clear(); }
-void AABB::clear() {
-  const float maxv = std::numeric_limits<float>::max();
-  const float minv = std::numeric_limits<float>::lowest();
-  mn = Vec3{maxv, maxv, maxv};
-  mx = Vec3{minv, minv, minv};
+float AABB::area() const noexcept {
+  const float dx = max_position.x() - min_position.x();
+  const float dy = max_position.y() - min_position.y();
+  const float dz = max_position.z() - min_position.z();
+  return 2.0f * (dx * dy + dy * dz + dz * dx);
 }
 
-void AABB::extend(const Vec3 &point) {
-  mn = vector::min(point, mn);
-  mx = vector::max(point, mx);
+AABB::AABB() noexcept { clear(); }
+void AABB::clear() noexcept {
+  min_position.fill(std::numeric_limits<float>::max());
+  max_position.fill(std::numeric_limits<float>::min());
 }
 
-const Vec3 &AABB::center() const { return (mn + mx) * 0.5f; }
-
-const Vec3 &AABB::min() const { return mn; }
-
-const Vec3 &AABB::max() const { return mx; }
-
-Vec3 AABB::size() const { return max() - min(); }
-
-void AABB::extend(const AABB &aabb) {
-  mn = vector::min(aabb.mn, mn);
-  mx = vector::max(aabb.mx, mx);
+void AABB::enlarge(const Vec3 &point) noexcept {
+  min_position = vector::min(point, min_position);
+  max_position = vector::max(point, max_position);
 }
 
-const Vec3 &AABB::operator[](int32_t index) const { return *(&mn + index); }
+void AABB::enlarge(const MeshTriangle &triangle) noexcept {
+  enlarge(triangle.vertex(0));
+  enlarge(triangle.vertex(1));
+  enlarge(triangle.vertex(2));
+}
 
-bool AABB::intersectCheck(const RayExt &ray, float currentIntersectT) const {
+void AABB::center(Vec3 *result) const noexcept {
+
+  *result = (min_position + max_position) * 0.5f;
+}
+
+const Vec3 &AABB::min() const noexcept { return min_position; }
+
+const Vec3 &AABB::max() const noexcept { return max_position; }
+
+Vec3 AABB::size() const noexcept { return max() - min(); }
+
+void AABB::enlarge(const AABB &aabb) noexcept {
+  min_position = vector::min(aabb.min_position, min_position);
+  max_position = vector::max(aabb.max_position, max_position);
+}
+
+const Vec3 &AABB::operator[](int32_t index) const noexcept {
+  return *(&min_position + index);
+}
+
+bool AABB::intersectCheck(const RayExt &ray, float currentIntersectT) const
+    noexcept {
   const AABB &aabb = *this;
   float tmin, tmax, tymin, tymax, tzmin, tzmax;
   tmin = (aabb[ray.sign[0]].x() - ray.pos.x()) * ray.dinv.x();
