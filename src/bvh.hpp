@@ -137,6 +137,10 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
   reorder_node(4);
   reorder_mesh();
 
+  for (auto &mesh : m_mesh_list) {
+    m_triangle_list.emplace_back(mesh);
+  }
+
   return true;
 }
 
@@ -271,7 +275,6 @@ void SimpleBVH::adjust_index(
 
   for (auto axis : {AxisX, AxisY, AxisZ}) {
     if (selected_axis != axis) {
-      // sorted as [left_left, left_right, right_left, right_right]
       std::stable_partition(index_sorted_by[axis].begin() + range.from,
                             index_sorted_by[axis].begin() + range.to,
                             [&](const std::size_t mesh_id) {
@@ -444,6 +447,7 @@ void SimpleBVH::constructNode(const std::int32_t depth) {
 
 bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
                              std::int32_t *hitNodeIndex) const {
+  
   const auto &node = m_node_list[nodeIndex];
   // このAABBに交差しなければ終了
   if (!node.aabb.intersectCheck(ray, ray.tfar)) {
@@ -451,15 +455,12 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
   }
   // 葉の場合は、ノードの三角形と交差判定
   else if (node.is_leaf()) {
-    auto &mesh = m_mesh_list[node.leaf_index];
-    if (intersectTriangle(ray, mesh.vertex(0), mesh.vertex(1),
-                          mesh.vertex(2))) {
+    if (m_triangle_list[node.leaf_index].intersect(ray)) {
       *hitNodeIndex = nodeIndex;
       return true;
     }
     return false;
-  }
-  // 枝の場合は、子を見に行く
+  }  // 枝の場合は、子を見に行く
   else {
     const bool h0 = intersectSub(node.left, ray, hitNodeIndex);
     const bool h1 = intersectSub(node.right, ray, hitNodeIndex);

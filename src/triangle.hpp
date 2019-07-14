@@ -158,67 +158,68 @@ MeshTriangle &MeshTriangleList::operator[](const std::size_t index) noexcept {
 class PackedTriangle {
 public:
   PackedTriangle(const MeshTriangle &src) noexcept;
-  bool intersect(const RayExt &ray) const noexcept;
-  float intersect_with_distance(const RayExt &ray) const noexcept;
+  bool intersect(RayExt &ray) const noexcept;
+  float intersect_with_distance(RayExt &ray) const noexcept;
+
+ private:
+  Vec3 m_e1;
+  Vec3 m_e2;
+  Vec3 m_origin;
 };
 
-PackedTriangle::PackedTriangle(const MeshTriangle &src) noexcept {}
-
-bool PackedTriangle::intersect(const RayExt &ray) const noexcept {
-  return false;
+PackedTriangle::PackedTriangle(const MeshTriangle &src) noexcept {
+  m_e1 = src.vertex(1) - src.vertex(0);
+  m_e2 = src.vertex(2) - src.vertex(0);
+  m_origin = src.vertex(0);
 }
 
-float PackedTriangle::intersect_with_distance(const RayExt &ray) const
-    noexcept {
-  return 0.0;
-}
-
-bool intersectTriangle(RayExt &ray, const Vec3 &v0, const Vec3 &v1,
-                       const Vec3 &v2) {
-  //
+bool PackedTriangle::intersect(RayExt &ray) const noexcept {
   float t, u, v;
-  //
-  Vec3 e1, e2;
-  Vec3 P, Q, T;
-  float det, inv_det;
-  // v0を共有するエッジ
-  e1 = v1 - v0;
-  e2 = v2 - v0;
+
   // detとuの準備
-  P = vector::cross(ray.dir, e2);
+  Vec3 P = vector::cross(ray.dir, m_e2);
+
   // ほぼ平行な場合かをチェック
-  det = vector::dot(e1, P);
+  float det = vector::dot(m_e1, P);
   if (det == 0.0f) {
     return false;
   }
-  inv_det = 1.0f / det;
+  float inv_det = 1.0f / det;
+
   // レイ原点からv0への距離
-  T = ray.pos - v0;
+  Vec3 T = ray.pos - m_origin;
+
   // uを計算し、範囲内に収まっているかをチェック
   u = vector::dot(T, P) * inv_det;
   if (u < 0.0f || u > 1.0f) {
     return false;
   }
+
   // vも同様の計算
-  Q = vector::cross(T, e1);
+  Vec3 Q = vector::cross(T, m_e1);
   v = vector::dot(ray.dir, Q) * inv_det;
   if (v < 0.0f || u + v > 1.0f) {
     return false;
   }
+
   // tの範囲チェック
-  t = vector::dot(e2, Q) * inv_det;
+  t = vector::dot(m_e2, Q) * inv_det;
   if (t < ray.tnear || ray.tfar < t) {
     return false;
   }
-  // 面の方向
-  // const bool isFlip = (det < 0.0f);
-  //
+
   if (t >= ray.tfar) {
     return false;
   }
+
   //
   ray.tfar = t;
   ray.u = u;
   ray.v = v;
   return true;
+}
+
+float PackedTriangle::intersect_with_distance(RayExt &ray) const
+    noexcept {
+  return 0.0;
 }
