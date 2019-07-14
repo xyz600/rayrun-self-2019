@@ -16,15 +16,16 @@
 using vector::Vec3;
 
 class SimpleBVH {
-public:
+ public:
   SimpleBVH();
   bool construct(MeshTriangleList &&mesh_list);
   bool intersect(RayExt &ray) const;
   bool intersectCheck(RayExt &ray) const;
 
-private:
+ private:
   struct Node {
-  public:
+   public:
+    std::int32_t self;
     std::int32_t left;
     std::int32_t right;
 
@@ -33,7 +34,7 @@ private:
 
     std::size_t leaf_index;
 
-    Node() noexcept {
+    Node(std::int32_t self) noexcept : self(self) {
       left = right = SimpleBVH::Invalid;
       leaf_index = SimpleBVH::Invalid;
       aabb.clear();
@@ -46,6 +47,14 @@ private:
 
     bool is_leaf() const noexcept {
       return left == SimpleBVH::Invalid && right == SimpleBVH::Invalid;
+    }
+
+    void copy_from(const Node &src) noexcept {
+      self = src.self;
+      left = src.left;
+      right = src.right;
+      aabb = src.aabb;
+      leaf_index = src.leaf_index;
     }
   };
 
@@ -75,13 +84,14 @@ private:
       std::vector<AABB> &right_accumulated_AABB, std::int32_t *best_axis,
       std::int32_t *best_position);
 
-  void
-  validate_range(const std::array<std::vector<int32_t>, 3> &mesh_id_sorted_by,
-                 const Range &range) const noexcept;
+  void reorder_mesh() noexcept;
 
-  void
-  validate(const std::array<std::vector<int32_t>, 3> &mesh_id_sorted_by) const
-      noexcept;
+  void reorder_node(const std::size_t max_depth) noexcept;
+
+  void visit_for_reorder(std::int32_t old_node_index, std::int32_t depth,
+                         std::int32_t max_depth, std::int32_t &new_node_index,
+                         std::queue<std::int32_t> &que,
+                         std::vector<std::int32_t> &order);
 
   static constexpr std::int32_t AxisX = 0;
   static constexpr std::int32_t AxisY = 1;
@@ -96,7 +106,15 @@ private:
   static constexpr float CostBoundingBoxIntersect = 1.0;
   static constexpr float CostPolygonIntersect = 1.0;
 
-private:
+  void validate_range(
+      const std::array<std::vector<int32_t>, 3> &mesh_id_sorted_by,
+      const Range &range) const noexcept;
+
+  void validate(const std::array<std::vector<int32_t>, 3> &mesh_id_sorted_by)
+      const noexcept;
+
+  void validate_order(const std::vector<std::int32_t> &order);
+
   // ÉmÅ[Éh
   std::vector<Node> m_node_list;
   MeshTriangleList m_mesh_list;
@@ -112,9 +130,13 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
   m_mesh_list = std::forward<MeshTriangleList>(mesh_list);
 
   m_node_list.reserve(m_mesh_list.size() * 2);
-  m_node_list.resize(1);
+  m_node_list.emplace_back(0);
   constructNode(0);
   m_node_list.shrink_to_fit();
+
+  reorder_node(4);
+  reorder_mesh();
+
   return true;
 }
 
@@ -135,13 +157,22 @@ void SimpleBVH::validate(
     const std::array<std::vector<int32_t>, 3> &mesh_id_sorted_by) const
     noexcept {
   std::set<std::int32_t> ids;
-  for (auto &node : m_node_list) {
+  for (const auto &node : m_node_list) {
     if (node.is_leaf()) {
       assert(0 <= node.leaf_index && node.leaf_index < m_mesh_list.size());
       ids.insert(node.leaf_index);
     }
   }
   assert(ids.size() == m_mesh_list.size());
+}
+
+void SimpleBVH::validate_order(const std::vector<std::int32_t> &order) {
+  std::set<std::int32_t> mesh_ids;
+  for (auto new_id : order) {
+    assert(0 <= new_id && new_id < order.size());
+    mesh_ids.insert(new_id);
+  }
+  assert(mesh_ids.size() == order.size());
 }
 
 bool SimpleBVH::intersect(RayExt &ray) const {
@@ -250,6 +281,84 @@ void SimpleBVH::adjust_index(
   }
 }
 
+void SimpleBVH::visit_for_reorder(std::int32_t old_node_index,
+                                  std::int32_t depth, std::int32_t max_depth,
+                                  std::int32_t &new_node_index,
+                                  std::queue<std::int32_t> &que,
+                                  std::vector<std::int32_t> &order) {
+  auto &current_node = m_node_list[old_node_index];
+  order[old_node_index] = new_node_index;
+  new_node_index++;
+
+  if (!current_node.is_leaf()) {
+    if (depth < max_depth) {
+      visit_for_reorder(current_node.left, depth + 1, max_depth, new_node_index,
+                        que, order);
+      visit_for_reorder(current_node.right, depth + 1, max_depth,
+                        new_node_index, que, order);
+    } else {
+      que.push(current_node.left);
+      que.push(current_node.right);
+    }
+  }
+}
+
+void SimpleBVH::reorder_mesh() noexcept {
+  const std::size_t mesh_size = m_mesh_list.size();
+  std::vector<std::int32_t> order(mesh_size);
+
+  std::int32_t new_mesh_index = 0;
+  for (auto &node : m_node_list) {
+    if (node.is_leaf()) {
+      order[node.leaf_index] = new_mesh_index;
+      node.leaf_index = new_mesh_index;
+      new_mesh_index++;
+    }
+  }
+  assert(new_mesh_index == m_mesh_list.size());
+
+  std::vector<MeshTriangle> new_mesh_list(mesh_size);
+  for (std::int32_t old_mesh_id = 0; old_mesh_id < mesh_size; old_mesh_id++) {
+    const std::int32_t new_mesh_id = order[old_mesh_id];
+    new_mesh_list[new_mesh_id].copy_from(m_mesh_list[old_mesh_id]);
+    new_mesh_list[new_mesh_id].faceid() = new_mesh_id;
+  }
+  for (std::int32_t new_mesh_id = 0; new_mesh_id < mesh_size; new_mesh_id++) {
+    m_mesh_list[new_mesh_id].copy_from(new_mesh_list[new_mesh_id]);
+  }
+}
+
+void SimpleBVH::reorder_node(const std::size_t max_depth) noexcept {
+  std::vector<std::int32_t> order(m_node_list.size());
+
+  std::queue<std::int32_t> que;
+  que.push(0);
+
+  std::int32_t new_index = 0;
+
+  while (!que.empty()) {
+    int32_t old_node_index = que.front();
+    que.pop();
+    visit_for_reorder(old_node_index, 0, max_depth, new_index, que, order);
+  }
+  assert(new_index == m_node_list.size());
+  assert(order.size() == new_index);
+  validate_order(order);
+
+  std::vector<Node> next_node_list(m_node_list.size(), 0);
+  for (std::int32_t old_node_id = 0; old_node_id < new_index; old_node_id++) {
+    const auto new_node_id = order[old_node_id];
+    auto &new_node = next_node_list[new_node_id];
+    new_node.copy_from(m_node_list[old_node_id]);
+    new_node.self = order[m_node_list[old_node_id].self];
+    if (!new_node.is_leaf()) {
+      new_node.left = order[m_node_list[old_node_id].left];
+      new_node.right = order[m_node_list[old_node_id].right];
+    }
+  }
+  std::swap(next_node_list, m_node_list);
+}
+
 void SimpleBVH::constructNode(const std::int32_t depth) {
   const std::size_t num_mesh = m_mesh_list.size();
 
@@ -304,7 +413,6 @@ void SimpleBVH::constructNode(const std::int32_t depth) {
       current_node.aabb.enlarge(m_mesh_list[mesh_id]);
 
     } else {
-
       std::int32_t best_axis, best_position;
       select_best_split(range, mesh_id_sorted_by, left_accumulated_AABB,
                         right_accumulated_AABB, &best_axis, &best_position);
@@ -316,9 +424,9 @@ void SimpleBVH::constructNode(const std::int32_t depth) {
                    best_position);
 
       current_node.left = node_index + 1;
-      m_node_list.emplace_back();
+      m_node_list.emplace_back(node_index + 1);
       current_node.right = node_index + 2;
-      m_node_list.emplace_back();
+      m_node_list.emplace_back(node_index + 1);
 
       // Range left{range.from, best_position, node_index + 1};
       //  validate_range(mesh_id_sorted_by, left);

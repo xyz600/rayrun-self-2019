@@ -18,12 +18,16 @@ public:
 
 class MeshTriangle {
 public:
+  MeshTriangle() = default;
   MeshTriangle(const Vec3 *vertex_root, const Vec3 *normal_root,
                const Face &face, const std::uint32_t faceid) noexcept;
   const Vec3 &vertex(const std::size_t index) const noexcept;
   const Vec3 &normal(const std::size_t index) const noexcept;
 
-  std::uint32_t faceid() const noexcept;
+  void copy_from(const MeshTriangle &src) noexcept;
+
+  const std::uint32_t &faceid() const noexcept;
+  std::uint32_t &faceid() noexcept;
 
   void center(Vec3 *result) const noexcept;
 
@@ -35,7 +39,18 @@ private:
   std::uint32_t m_faceid;
 };
 
-std::uint32_t MeshTriangle::faceid() const noexcept { return m_faceid; }
+void MeshTriangle::copy_from(const MeshTriangle &src) noexcept {
+  std::copy(src.m_vertex_index.begin(), src.m_vertex_index.end(),
+            m_vertex_index.begin());
+  std::copy(src.m_normal_index.begin(), src.m_normal_index.end(),
+            m_normal_index.begin());
+  m_vertex_root = src.m_vertex_root;
+  m_normal_root = src.m_normal_root;
+  m_faceid = src.m_faceid;
+}
+
+const std::uint32_t &MeshTriangle::faceid() const noexcept { return m_faceid; }
+std::uint32_t &MeshTriangle::faceid() noexcept { return m_faceid; }
 
 MeshTriangle::MeshTriangle(const Vec3 *vertex_root, const Vec3 *normal_root,
                            const Face &face,
