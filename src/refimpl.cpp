@@ -88,19 +88,23 @@ void intersect(Ray *rays, size_t numRay, bool hitany) {
     rayExt.sign[2] = (ray.dir[2] < 0.0f);
     rayExt.tnear = ray.tnear;
     rayExt.tfar = ray.tfar;
-    //
-    if (!g_bvh.intersect(rayExt)) {
-      ray.isisect = false;
+
+    if (hitany) {
+      ray.isisect = g_bvh.intersectAny(rayExt);
     } else {
-      ray.isisect = true;
-      const Vec3 &isectPos = rayExt.isect;
-      ray.isect[0] = isectPos.x();
-      ray.isect[1] = isectPos.y();
-      ray.isect[2] = isectPos.z();
-      ray.ns[0] = rayExt.ns.x();
-      ray.ns[1] = rayExt.ns.y();
-      ray.ns[2] = rayExt.ns.z();
-      ray.faceid = rayExt.faceid;
+      if (!g_bvh.intersect(rayExt)) {
+        ray.isisect = false;
+      } else {
+        ray.isisect = true;
+        const Vec3 &isectPos = rayExt.isect;
+        ray.isect[0] = isectPos.x();
+        ray.isect[1] = isectPos.y();
+        ray.isect[2] = isectPos.z();
+        ray.ns[0] = rayExt.ns.x();
+        ray.ns[1] = rayExt.ns.y();
+        ray.ns[2] = rayExt.ns.z();
+        ray.faceid = rayExt.faceid;
+      }
     }
   }
 }

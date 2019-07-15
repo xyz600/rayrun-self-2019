@@ -20,7 +20,7 @@ class SimpleBVH {
   SimpleBVH();
   bool construct(MeshTriangleList &&mesh_list);
   bool intersect(RayExt &ray) const;
-  bool intersectCheck(RayExt &ray) const;
+  bool intersectAny(RayExt &ray) const;
 
  private:
   struct Node {
@@ -75,6 +75,8 @@ class SimpleBVH {
 
   bool intersectSub(std::int32_t nodeIndex, RayExt &ray,
                     std::int32_t *hitMeshIndex) const;
+  bool intersectAnySub(std::int32_t nodeIndex, RayExt &ray,
+                       std::int32_t *hitMeshIndex) const;
 
   void adjust_index(std::array<std::vector<std::int32_t>, 3> &index_sorted_by,
                     std::vector<std::uint8_t> &is_left_flag, const Range &range,
@@ -316,10 +318,37 @@ bool SimpleBVH::intersect(RayExt &ray) const {
   return isHit;
 }
 
-bool SimpleBVH::intersectCheck(RayExt &ray) const {
-  // intersect()をそのまま流用
-  std::int32_t hitMeshIdx = 0;
-  return intersectSub(0, ray, &hitMeshIdx);
+bool SimpleBVH::intersectAnySub(std::int32_t nodeIndex, RayExt &ray,
+                                std::int32_t *hitMeshIndex) const {
+  const auto &node = m_node_list[nodeIndex];
+
+  // このAABBに交差しなければ終了
+  if (!node.aabb.intersect(ray, ray.tfar)) {
+    return false;
+  }
+  // 葉の場合は、ノードの三角形と交差判定
+  else if (node.is_leaf()) {
+    for (std::int32_t mesh_index = node.leaf_meshid_from;
+         mesh_index < node.leaf_meshid_to; mesh_index++) {
+      if (m_triangle_list[mesh_index].intersect(ray)) {
+        return true;
+      }
+    }
+    return false;
+  }  // 枝の場合は、子を見に行く
+  else {
+    const bool h0 = intersectAnySub(node.left, ray, hitMeshIndex);
+    if (h0) {
+      return true;
+    }
+    const bool h1 = intersectAnySub(node.right, ray, hitMeshIndex);
+    return h1;
+  }
+}
+
+bool SimpleBVH::intersectAny(RayExt &ray) const {
+  std::int32_t hitMeshIndex;
+  return intersectAnySub(0, ray, &hitMeshIndex);
 }
 
 void SimpleBVH::select_best_split(
@@ -494,7 +523,7 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
                              std::int32_t *hitMeshIndex) const {
   const auto &node = m_node_list[nodeIndex];
   // このAABBに交差しなければ終了
-  if (!node.aabb.intersectCheck(ray, ray.tfar)) {
+  if (!node.aabb.intersect(ray, ray.tfar)) {
     return false;
   }
   // 葉の場合は、ノードの三角形と交差判定

@@ -23,7 +23,7 @@ public:
   const Vec3 &max() const noexcept;
   Vec3 size() const noexcept;
   const Vec3 &operator[](int32_t index) const noexcept;
-  bool intersectCheck(const RayExt &ray, float currentIntersectT) const
+  bool intersect(const RayExt &ray, float currentIntersectT) const
       noexcept;
 
 private:
@@ -44,7 +44,6 @@ bool AABB::contain(const MeshTriangle &triangle) const noexcept {
   aabb_for_triangle.enlarge(triangle);
   return contain(aabb_for_triangle);
 }
-
 
 float AABB::area() const noexcept {
   const float dx = max_position.x() - min_position.x();
@@ -90,7 +89,7 @@ const Vec3 &AABB::operator[](int32_t index) const noexcept {
   return *(&min_position + index);
 }
 
-bool AABB::intersectCheck(const RayExt &ray, float currentIntersectT) const
+bool AABB::intersect(const RayExt &ray, float currentIntersectT) const
     noexcept {
   const AABB &aabb = *this;
   float tmin, tmax, tymin, tymax, tzmin, tzmax;
