@@ -7,7 +7,9 @@
 using vector::Vec3;
 
 class AABB {
-public:
+ public:
+  static constexpr float InvalidDistance = std::numeric_limits<float>::infinity();
+
   AABB() noexcept;
   void clear() noexcept;
   void enlarge(const Vec3 &point) noexcept;
@@ -23,10 +25,11 @@ public:
   const Vec3 &max() const noexcept;
   Vec3 size() const noexcept;
   const Vec3 &operator[](int32_t index) const noexcept;
-  bool intersect(const RayExt &ray, float currentIntersectT) const
+  bool intersect(const RayExt &ray, float currentIntersectT) const noexcept;
+  float intersect_distance(const RayExt &ray, float currentIntersectT) const
       noexcept;
 
-private:
+ private:
   Vec3 min_position;
   Vec3 max_position;
 };
@@ -70,7 +73,6 @@ void AABB::enlarge(const MeshTriangle &triangle) noexcept {
 }
 
 void AABB::center(Vec3 *result) const noexcept {
-
   *result = (min_position + max_position) * 0.5f;
 }
 
@@ -118,4 +120,39 @@ bool AABB::intersect(const RayExt &ray, float currentIntersectT) const
     tmax = tzmax;
   }
   return (tmin < currentIntersectT) && (ray.tnear < tmax) && (tmin < ray.tfar);
+}
+
+float AABB::intersect_distance(const RayExt &ray, float currentIntersectT) const
+    noexcept {
+  const AABB &aabb = *this;
+  float tmin, tmax, tymin, tymax, tzmin, tzmax;
+  tmin = (aabb[ray.sign[0]].x() - ray.pos.x()) * ray.dinv.x();
+  tmax = (aabb[1 - ray.sign[0]].x() - ray.pos.x()) * ray.dinv.x();
+  tymin = (aabb[ray.sign[1]].y() - ray.pos.y()) * ray.dinv.y();
+  tymax = (aabb[1 - ray.sign[1]].y() - ray.pos.y()) * ray.dinv.y();
+  if ((tmin > tymax) || (tymin > tmax)) {
+    return InvalidDistance;
+  }
+  if (tymin > tmin) {
+    tmin = tymin;
+  }
+  if (tymax < tmax) {
+    tmax = tymax;
+  }
+  tzmin = (aabb[ray.sign[2]].z() - ray.pos.z()) * ray.dinv.z();
+  tzmax = (aabb[1 - ray.sign[2]].z() - ray.pos.z()) * ray.dinv.z();
+  if ((tmin > tzmax) || (tzmin > tmax)) {
+    return InvalidDistance;
+  }
+  if (tzmin > tmin) {
+    tmin = tzmin;
+  }
+  if (tzmax < tmax) {
+    tmax = tzmax;
+  }
+  if ((tmin < currentIntersectT) && (ray.tnear < tmax) && (ray.tnear < tmin && tmin < ray.tfar)) {
+    return tmin;
+  } else { 
+	  return InvalidDistance;
+  }
 }

@@ -157,9 +157,12 @@ MeshTriangle &MeshTriangleList::operator[](const std::size_t index) noexcept {
 
 class PackedTriangle {
 public:
+
+  static constexpr float InvalidDistance = std::numeric_limits<float>::infinity();
+
   PackedTriangle(const MeshTriangle &src) noexcept;
   bool intersect(RayExt &ray) const noexcept;
-  float intersect_with_distance(RayExt &ray) const noexcept;
+  float intersect_distance(RayExt &ray) const noexcept;
 
 private:
   Vec3 m_e1;
@@ -219,6 +222,44 @@ bool PackedTriangle::intersect(RayExt &ray) const noexcept {
   return true;
 }
 
-float PackedTriangle::intersect_with_distance(RayExt &ray) const noexcept {
-  return 0.0;
+float PackedTriangle::intersect_distance(RayExt &ray) const noexcept {
+  float t, u, v;
+
+  // detとuの準備
+  Vec3 P = vector::cross(ray.dir, m_e2);
+
+  // ほぼ平行な場合かをチェック
+  float det = vector::dot(m_e1, P);
+  if (det == 0.0f) {
+    return InvalidDistance;
+  }
+  float inv_det = 1.0f / det;
+
+  // レイ原点からv0への距離
+  Vec3 T = ray.pos - m_origin;
+
+  // uを計算し、範囲内に収まっているかをチェック
+  u = vector::dot(T, P) * inv_det;
+  if (u < 0.0f || u > 1.0f) {
+    return InvalidDistance;
+  }
+
+  // vも同様の計算
+  Vec3 Q = vector::cross(T, m_e1);
+  v = vector::dot(ray.dir, Q) * inv_det;
+  if (v < 0.0f || u + v > 1.0f) {
+    return InvalidDistance;
+  }
+
+  // tの範囲チェック
+  t = vector::dot(m_e2, Q) * inv_det;
+  if (t < ray.tnear || ray.tfar < t) {
+    return InvalidDistance;
+  }
+
+  //
+  ray.tfar = t;
+  ray.u = u;
+  ray.v = v;
+  return t;
 }

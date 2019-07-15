@@ -12,6 +12,7 @@
 #include <queue>
 #include <set>
 #include <vector>
+#include <cmath>
 
 using vector::Vec3;
 
@@ -322,12 +323,7 @@ bool SimpleBVH::intersectAnySub(std::int32_t nodeIndex, RayExt &ray,
                                 std::int32_t *hitMeshIndex) const {
   const auto &node = m_node_list[nodeIndex];
 
-  // このAABBに交差しなければ終了
-  if (!node.aabb.intersect(ray, ray.tfar)) {
-    return false;
-  }
-  // 葉の場合は、ノードの三角形と交差判定
-  else if (node.is_leaf()) {
+  if (node.is_leaf()) {
     for (std::int32_t mesh_index = node.leaf_meshid_from;
          mesh_index < node.leaf_meshid_to; mesh_index++) {
       if (m_triangle_list[mesh_index].intersect(ray)) {
@@ -337,12 +333,31 @@ bool SimpleBVH::intersectAnySub(std::int32_t nodeIndex, RayExt &ray,
     return false;
   }  // 枝の場合は、子を見に行く
   else {
-    const bool h0 = intersectAnySub(node.left, ray, hitMeshIndex);
-    if (h0) {
+    const float left_aabb_distance =
+        m_node_list[node.left].aabb.intersect_distance(ray, ray.tfar);
+    const float right_aabb_distance =
+        m_node_list[node.right].aabb.intersect_distance(ray, ray.tfar);
+
+    std::int32_t near_node_id = node.left;
+    std::int32_t far_node_id = node.right;
+    if (std::isinf(left_aabb_distance) ||
+        left_aabb_distance > right_aabb_distance) {
+      std::swap(near_node_id, far_node_id);
+    }
+	const float near_distance =
+        std::min(left_aabb_distance, right_aabb_distance);
+    const float far_distance =
+        std::max(left_aabb_distance, right_aabb_distance);
+
+    if (near_distance < ray.tfar &&
+        intersectAnySub(near_node_id, ray, hitMeshIndex)) {
       return true;
     }
-    const bool h1 = intersectAnySub(node.right, ray, hitMeshIndex);
-    return h1;
+    if (far_distance < ray.tfar &&
+        intersectAnySub(far_node_id, ray, hitMeshIndex)) {
+		return true;
+	}
+    return false;
   }
 }
 
@@ -522,12 +537,9 @@ void SimpleBVH::reorder_node(const std::size_t max_depth) noexcept {
 bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
                              std::int32_t *hitMeshIndex) const {
   const auto &node = m_node_list[nodeIndex];
-  // このAABBに交差しなければ終了
-  if (!node.aabb.intersect(ray, ray.tfar)) {
-    return false;
-  }
+
   // 葉の場合は、ノードの三角形と交差判定
-  else if (node.is_leaf()) {
+  if (node.is_leaf()) {
     bool success = false;
     for (std::int32_t mesh_index = node.leaf_meshid_from;
          mesh_index < node.leaf_meshid_to; mesh_index++) {
@@ -539,8 +551,29 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
     return success;
   }  // 枝の場合は、子を見に行く
   else {
-    const bool h0 = intersectSub(node.left, ray, hitMeshIndex);
-    const bool h1 = intersectSub(node.right, ray, hitMeshIndex);
-    return h0 || h1;
+    const float left_aabb_distance =
+        m_node_list[node.left].aabb.intersect_distance(ray, ray.tfar);
+    const float right_aabb_distance =
+        m_node_list[node.right].aabb.intersect_distance(ray, ray.tfar);
+
+    std::int32_t near_node_id = node.left;
+    std::int32_t far_node_id = node.right;
+    if (std::isinf(left_aabb_distance) ||
+        left_aabb_distance > right_aabb_distance) {
+      std::swap(near_node_id, far_node_id);
+    }
+    const float near_distance =
+        std::min(left_aabb_distance, right_aabb_distance);
+    const float far_distance =
+        std::max(left_aabb_distance, right_aabb_distance);
+	
+	bool update = false;
+    if (near_distance < ray.tfar) {
+          update |= intersectSub(near_node_id, ray, hitMeshIndex);
+    }
+    if (far_distance < ray.tfar) {
+      update |= intersectSub(far_node_id, ray, hitMeshIndex);
+    }
+    return update;
   }
 }
