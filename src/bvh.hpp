@@ -119,6 +119,10 @@ class SimpleBVH {
 
   void validate_leaf();
 
+  void validate_node(int node_index);
+
+  void validate_node_index();
+
   // ノード
   std::vector<Node> m_node_list;
   MeshTriangleList m_mesh_list;
@@ -224,8 +228,6 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
   reorder_node(5);
   reorder_mesh(mesh_index_list);
 
-  validate_leaf();
-
   for (auto &mesh : m_mesh_list) {
     m_triangle_list.emplace_back(mesh);
   }
@@ -246,9 +248,38 @@ void SimpleBVH::validate_range(
   assert(mesh_id_set[0] == mesh_id_set[2]);
 }
 
-void SimpleBVH::validate_leaf(){
+void SimpleBVH::validate_node_index() {
+  std::set<std::int32_t> node_id_set;
+  node_id_set.insert(0);
+  for (auto &node : m_node_list) {
+    if (!node.is_leaf()) {
+      node_id_set.insert(node.left);
+      node_id_set.insert(node.right);
+      assert(0 <= node.left && node.left < m_node_list.size());
+      assert(0 <= node.right && node.right < m_node_list.size());
+    }
+  }
+  assert(m_node_list.size() == node_id_set.size());
+}
+
+void SimpleBVH::validate_node(int node_index) {
+  auto &node = m_node_list[node_index];
+  if (node.is_leaf()) {
+    for (std::int32_t mesh_index = node.leaf_meshid_from;
+         mesh_index < node.leaf_meshid_to; mesh_index++) {
+      assert(node.aabb.contain(m_mesh_list[mesh_index]));
+    }
+  } else {
+    assert(node.aabb.contain(m_node_list[node.left].aabb));
+    assert(node.aabb.contain(m_node_list[node.right].aabb));
+    validate_node(node.left);
+    validate_node(node.right);
+  }
+}
+
+void SimpleBVH::validate_leaf() {
   std::set<std::int32_t> mesh_ids;
-  for (auto node: m_node_list) {
+  for (auto node : m_node_list) {
     if (node.is_leaf()) {
       for (std::int32_t id = node.leaf_meshid_from; id < node.leaf_meshid_to;
            id++) {
@@ -259,7 +290,6 @@ void SimpleBVH::validate_leaf(){
   }
   assert(mesh_ids.size() == m_mesh_list.size());
 }
-
 
 void SimpleBVH::validate_order(const std::vector<std::int32_t> &order) {
   std::set<std::int32_t> mesh_ids;
@@ -469,14 +499,15 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
   }
   // 葉の場合は、ノードの三角形と交差判定
   else if (node.is_leaf()) {
+    bool success = false;
     for (std::int32_t mesh_index = node.leaf_meshid_from;
          mesh_index < node.leaf_meshid_to; mesh_index++) {
       if (m_triangle_list[mesh_index].intersect(ray)) {
         *hitMeshIndex = mesh_index;
-        return true;
+        success = true;
       }
     }
-    return false;
+    return success;
   }  // 枝の場合は、子を見に行く
   else {
     const bool h0 = intersectSub(node.left, ray, hitMeshIndex);

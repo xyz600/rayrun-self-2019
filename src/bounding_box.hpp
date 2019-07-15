@@ -15,6 +15,8 @@ public:
   void enlarge(const MeshTriangle &aabb) noexcept;
 
   float area() const noexcept;
+  bool contain(const AABB &aabb) const noexcept;
+  bool contain(const MeshTriangle &triangle) const noexcept;
 
   void center(Vec3 *result) const noexcept;
   const Vec3 &min() const noexcept;
@@ -28,6 +30,21 @@ private:
   Vec3 min_position;
   Vec3 max_position;
 };
+
+bool AABB::contain(const AABB &aabb) const noexcept {
+  return (min().x() <= aabb.min().x() && min().y() <= aabb.min().y() &&
+          min().z() <= aabb.min().z()) &&
+         (aabb.max().x() <= max().x() && aabb.max().y() <= max().y() &&
+          aabb.max().z() <= max().z());
+}
+
+bool AABB::contain(const MeshTriangle &triangle) const noexcept {
+  AABB aabb_for_triangle;
+  aabb_for_triangle.clear();
+  aabb_for_triangle.enlarge(triangle);
+  return contain(aabb_for_triangle);
+}
+
 
 float AABB::area() const noexcept {
   const float dx = max_position.x() - min_position.x();
