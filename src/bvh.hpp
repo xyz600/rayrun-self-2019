@@ -7,25 +7,25 @@
 
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <queue>
 #include <set>
 #include <vector>
-#include <cmath>
 
 using vector::Vec3;
 
 class SimpleBVH {
- public:
+public:
   SimpleBVH();
   bool construct(MeshTriangleList &&mesh_list);
   bool intersect(RayExt &ray) const;
   bool intersectAny(RayExt &ray) const;
 
- private:
+private:
   struct Node {
-   public:
+  public:
     std::int32_t self;
     std::int32_t left;
     std::int32_t right;
@@ -114,9 +114,9 @@ class SimpleBVH {
 
   static constexpr std::int32_t leaf_size_threashold = 8;
 
-  void validate_range(
-      const std::array<std::vector<int32_t>, 3> &mesh_id_sorted_by,
-      const Range &range) const noexcept;
+  void
+  validate_range(const std::array<std::vector<int32_t>, 3> &mesh_id_sorted_by,
+                 const Range &range) const noexcept;
 
   void validate_order(const std::vector<std::int32_t> &order);
 
@@ -331,7 +331,7 @@ bool SimpleBVH::intersectAnySub(std::int32_t nodeIndex, RayExt &ray,
       }
     }
     return false;
-  }  // 枝の場合は、子を見に行く
+  } // 枝の場合は、子を見に行く
   else {
     const float left_aabb_distance =
         m_node_list[node.left].aabb.intersect_distance(ray, ray.tfar);
@@ -344,7 +344,7 @@ bool SimpleBVH::intersectAnySub(std::int32_t nodeIndex, RayExt &ray,
         left_aabb_distance > right_aabb_distance) {
       std::swap(near_node_id, far_node_id);
     }
-	const float near_distance =
+    const float near_distance =
         std::min(left_aabb_distance, right_aabb_distance);
     const float far_distance =
         std::max(left_aabb_distance, right_aabb_distance);
@@ -355,8 +355,8 @@ bool SimpleBVH::intersectAnySub(std::int32_t nodeIndex, RayExt &ray,
     }
     if (far_distance < ray.tfar &&
         intersectAnySub(far_node_id, ray, hitMeshIndex)) {
-		return true;
-	}
+      return true;
+    }
     return false;
   }
 }
@@ -549,7 +549,7 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
       }
     }
     return success;
-  }  // 枝の場合は、子を見に行く
+  } // 枝の場合は、子を見に行く
   else {
     const float left_aabb_distance =
         m_node_list[node.left].aabb.intersect_distance(ray, ray.tfar);
@@ -566,10 +566,10 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
         std::min(left_aabb_distance, right_aabb_distance);
     const float far_distance =
         std::max(left_aabb_distance, right_aabb_distance);
-	
-	bool update = false;
+
+    bool update = false;
     if (near_distance < ray.tfar) {
-          update |= intersectSub(near_node_id, ray, hitMeshIndex);
+      update |= intersectSub(near_node_id, ray, hitMeshIndex);
     }
     if (far_distance < ray.tfar) {
       update |= intersectSub(far_node_id, ray, hitMeshIndex);

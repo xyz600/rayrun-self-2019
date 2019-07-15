@@ -7,8 +7,9 @@
 using vector::Vec3;
 
 class AABB {
- public:
-  static constexpr float InvalidDistance = std::numeric_limits<float>::infinity();
+public:
+  static constexpr float InvalidDistance =
+      std::numeric_limits<float>::infinity();
 
   AABB() noexcept;
   void clear() noexcept;
@@ -29,7 +30,7 @@ class AABB {
   float intersect_distance(const RayExt &ray, float currentIntersectT) const
       noexcept;
 
- private:
+private:
   Vec3 min_position;
   Vec3 max_position;
 };
@@ -152,7 +153,7 @@ float AABB::intersect_distance(const RayExt &ray, float currentIntersectT) const
   }
   if ((tmin < currentIntersectT) && (ray.tnear < tmax) && (tmin < ray.tfar)) {
     return tmin;
-  } else { 
-	  return InvalidDistance;
+  } else {
+    return InvalidDistance;
   }
 }

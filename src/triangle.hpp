@@ -157,8 +157,8 @@ MeshTriangle &MeshTriangleList::operator[](const std::size_t index) noexcept {
 
 class PackedTriangle {
 public:
-
-  static constexpr float InvalidDistance = std::numeric_limits<float>::infinity();
+  static constexpr float InvalidDistance =
+      std::numeric_limits<float>::infinity();
 
   PackedTriangle(const MeshTriangle &src) noexcept;
   bool intersect(RayExt &ray) const noexcept;
