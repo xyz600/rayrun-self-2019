@@ -161,7 +161,7 @@ public:
   bool intersect(RayExt &ray) const noexcept;
   float intersect_with_distance(RayExt &ray) const noexcept;
 
- private:
+private:
   Vec3 m_e1;
   Vec3 m_e2;
   Vec3 m_origin;
@@ -219,7 +219,6 @@ bool PackedTriangle::intersect(RayExt &ray) const noexcept {
   return true;
 }
 
-float PackedTriangle::intersect_with_distance(RayExt &ray) const
-    noexcept {
+float PackedTriangle::intersect_with_distance(RayExt &ray) const noexcept {
   return 0.0;
 }
