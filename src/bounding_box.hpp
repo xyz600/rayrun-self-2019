@@ -150,7 +150,7 @@ float AABB::intersect_distance(const RayExt &ray, float currentIntersectT) const
   if (tzmax < tmax) {
     tmax = tzmax;
   }
-  if ((tmin < currentIntersectT) && (ray.tnear < tmax) && (ray.tnear < tmin && tmin < ray.tfar)) {
+  if ((tmin < currentIntersectT) && (ray.tnear < tmax) && (tmin < ray.tfar)) {
     return tmin;
   } else { 
 	  return InvalidDistance;
