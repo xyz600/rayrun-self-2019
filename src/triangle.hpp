@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bounding_box.hpp"
+#include "matrix.hpp"
 #include "vec.hpp"
 
 #include <array>
@@ -31,6 +32,8 @@ class MeshTriangle {
 
   void center(Vec3 *result) const noexcept;
 
+  bool validate() const noexcept;
+
  private:
   std::array<std::uint32_t, 3> m_vertex_index;
   std::array<std::uint32_t, 3> m_normal_index;
@@ -38,6 +41,13 @@ class MeshTriangle {
   const Vec3 *m_normal_root;
   std::uint32_t m_faceid;
 };
+
+bool MeshTriangle::validate() const noexcept {
+  const auto &v0 = vertex(0);
+  const auto &v1 = vertex(1);
+  const auto &v2 = vertex(2);
+  return vector::norm2(v1 - v0) != 0.0f && vector::norm2(v2 - v0) != 0.0f;
+}
 
 void MeshTriangle::copy_from(const MeshTriangle &src) noexcept {
   std::copy(src.m_vertex_index.begin(), src.m_vertex_index.end(),
@@ -143,6 +153,9 @@ MeshTriangleList::MeshTriangleList(std::vector<Face> &&face_list,
   for (std::size_t face_id = 0; face_id < face_list.size(); face_id++) {
     m_mesh_list.emplace_back(m_vertex_list.data(), m_normal_list.data(),
                              face_list[face_id], face_id);
+    if (!m_mesh_list.back().validate()) {
+      m_mesh_list.pop_back();
+    }
   }
 }
 
@@ -165,15 +178,33 @@ class PackedTriangle {
   float intersect_distance(RayExt &ray) const noexcept;
 
  private:
-  Vec3 m_e1;
-  Vec3 m_e2;
-  Vec3 m_origin;
+  std::array<Vec3, 3> ps;
+  Vec3 offset;
 };
 
 PackedTriangle::PackedTriangle(const MeshTriangle &src) noexcept {
-  m_e1 = src.vertex(1) - src.vertex(0);
-  m_e2 = src.vertex(2) - src.vertex(0);
-  m_origin = src.vertex(0);
+  Matrix4x4F p;
+  const Vec3 d1 = src.vertex(1) - src.vertex(0);
+  const Vec3 d2 = src.vertex(2) - src.vertex(0);
+  const Vec3 normal = normalize(vector::cross(d1, d2));
+
+  for (std::size_t i = 0; i < 3; i++) {
+    p[i][0] = d1[i];
+    p[i][1] = d2[i];
+    p[i][2] = normal[i];
+    p[i][3] = src.vertex(0)[i];
+  }
+  p[3][0] = 0;
+  p[3][1] = 0;
+  p[3][2] = 0;
+  p[3][3] = 1;
+  auto inverse = p.inverse();
+  for (std::size_t i = 0; i < 3; i++) {
+    ps[0][i] = inverse[0][i];
+    ps[1][i] = inverse[1][i];
+    ps[2][i] = inverse[2][i];
+    offset[i] = inverse[i][3];
+  }
 }
 
 bool PackedTriangle::intersect(RayExt &ray) const noexcept {
@@ -181,43 +212,23 @@ bool PackedTriangle::intersect(RayExt &ray) const noexcept {
 }
 
 float PackedTriangle::intersect_distance(RayExt &ray) const noexcept {
-  float t, u, v;
+  Vec3 o, n;
+  for (std::size_t i = 0; i < 3; i++) {
+    o[i] = vector::dot(ps[i], ray.pos);
+    n[i] = vector::dot(ps[i], ray.dir);
+  }
+  o += offset;
 
-  // detとuの準備
-  Vec3 P = vector::cross(ray.dir, m_e2);
+  const float t = -o[2] / n[2];
+  const float u = o[0] + t * n[0];
+  const float v = o[1] + t * n[1];
 
-  // ほぼ平行な場合かをチェック
-  float det = vector::dot(m_e1, P);
-  if (det == 0.0f) {
+  if (ray.tnear < t && t < ray.tfar && 0 <= u && 0 <= v && u + v <= 1) {
+    ray.tfar = t;
+    ray.u = u;
+    ray.v = v;
+    return t;
+  } else {
     return InvalidDistance;
   }
-  float inv_det = 1.0f / det;
-
-  // レイ原点からv0への距離
-  Vec3 T = ray.pos - m_origin;
-
-  // uを計算し、範囲内に収まっているかをチェック
-  u = vector::dot(T, P) * inv_det;
-  if (u < 0.0f || u > 1.0f) {
-    return InvalidDistance;
-  }
-
-  // vも同様の計算
-  Vec3 Q = vector::cross(T, m_e1);
-  v = vector::dot(ray.dir, Q) * inv_det;
-  if (v < 0.0f || u + v > 1.0f) {
-    return InvalidDistance;
-  }
-
-  // tの範囲チェック
-  t = vector::dot(m_e2, Q) * inv_det;
-  if (t < ray.tnear || ray.tfar < t) {
-    return InvalidDistance;
-  }
-
-  //
-  ray.tfar = t;
-  ray.u = u;
-  ray.v = v;
-  return t;
 }
