@@ -2,11 +2,14 @@
 
 #include "bounding_box.hpp"
 #include "ray.hpp"
+#include "task_queue.hpp"
 #include "triangle.hpp"
 #include "vec.hpp"
 
 #include <array>
+#include <atomic>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -36,7 +39,11 @@ private:
     std::size_t leaf_meshid_from;
     std::size_t leaf_meshid_to;
 
-    Node(std::int32_t self) noexcept : self(self) {
+    Node() noexcept { clear(); }
+
+    Node(std::int32_t self) noexcept : self(self) { clear(); }
+
+    void clear() noexcept {
       left = right = SimpleBVH::Invalid;
       leaf_meshid_from = SimpleBVH::Invalid;
       leaf_meshid_to = SimpleBVH::Invalid;
@@ -139,8 +146,8 @@ SimpleBVH::SimpleBVH() {}
 
 bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
   m_mesh_list = std::forward<MeshTriangleList>(mesh_list);
-  m_node_list.reserve(m_mesh_list.size() * 2);
   m_node_list.emplace_back(0);
+  m_node_list.resize(m_mesh_list.size() * 2);
 
   const std::size_t num_mesh = m_mesh_list.size();
 
@@ -169,7 +176,7 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
   // because std::vector<bool> is packed & not atomic
   std::vector<std::uint8_t> is_left_flag(num_mesh);
 
-  std::int32_t node_index = 0;
+  std::atomic_int32_t node_index = 0;
 
   // AABB of range [0, index]
   std::vector<AABB> left_accumulated_AABB(num_mesh);
@@ -177,55 +184,77 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
   // AABB of range [index, num_mesh - 1]
   std::vector<AABB> right_accumulated_AABB(num_mesh);
 
-  std::queue<Range> que;
-  que.emplace(0, num_mesh, node_index);
+  TaskQueue<Range> que(m_mesh_list.size());
+  que.push(Range(0, num_mesh, node_index));
 
-  while (!que.empty()) {
-    auto range = que.front();
-    que.pop();
+  constexpr std::size_t num_threads = 4;
+  std::vector<std::thread> threads(num_threads);
 
-    auto &current_node = m_node_list[range.node_index];
+  for (auto i = 0u; i < num_threads; ++i) {
+    threads[i] = std::thread([&]() {
+      while (!que.terminate()) {
+        auto may_range = que.front_pop();
+        if (!may_range.has_value()) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        } else {
+          auto range = may_range.value();
 
-    if (range.size() <= leaf_size_threashold) {
-      current_node.set_leaf(range.from, range.to);
-      // node is already cleared when node is created
-      for (std::int32_t mesh_index = range.from; mesh_index < range.to;
-           mesh_index++) {
-        mesh_index_list[mesh_index] = mesh_id_sorted_by[AxisX][mesh_index];
-        current_node.aabb.enlarge(m_mesh_list[mesh_index_list[mesh_index]]);
-      }
-    } else {
-      std::int32_t best_axis, best_position;
-      select_best_split(range, mesh_id_sorted_by, left_accumulated_AABB,
-                        right_accumulated_AABB, &best_axis, &best_position);
+          auto &current_node = m_node_list[range.node_index];
 
-      if (best_axis == Invalid) {
-        current_node.set_leaf(range.from, range.to);
-        // node is already cleared when node is created
-        for (std::int32_t mesh_index = range.from; mesh_index < range.to;
-             mesh_index++) {
-          mesh_index_list[mesh_index] = mesh_id_sorted_by[AxisX][mesh_index];
-          current_node.aabb.enlarge(m_mesh_list[mesh_index_list[mesh_index]]);
+          if (range.size() <= leaf_size_threashold) {
+            current_node.set_leaf(range.from, range.to);
+            // node is already cleared when node is created
+            for (std::int32_t mesh_index = range.from; mesh_index < range.to;
+                 mesh_index++) {
+              mesh_index_list[mesh_index] =
+                  mesh_id_sorted_by[AxisX][mesh_index];
+              current_node.aabb.enlarge(
+                  m_mesh_list[mesh_index_list[mesh_index]]);
+            }
+            que.update(range.to - range.from);
+          } else {
+            std::int32_t best_axis, best_position;
+            select_best_split(range, mesh_id_sorted_by, left_accumulated_AABB,
+                              right_accumulated_AABB, &best_axis,
+                              &best_position);
+
+            if (best_axis == Invalid) {
+              current_node.set_leaf(range.from, range.to);
+              // node is already cleared when node is created
+              for (std::int32_t mesh_index = range.from; mesh_index < range.to;
+                   mesh_index++) {
+                mesh_index_list[mesh_index] =
+                    mesh_id_sorted_by[AxisX][mesh_index];
+                current_node.aabb.enlarge(
+                    m_mesh_list[mesh_index_list[mesh_index]]);
+              }
+              que.update(range.to - range.from);
+            } else {
+              // node is already cleared when node is created
+              current_node.aabb.enlarge(left_accumulated_AABB[range.to - 1]);
+
+              adjust_index(mesh_id_sorted_by, is_left_flag, range, best_axis,
+                           best_position);
+
+              current_node.left = ++node_index;
+              m_node_list[current_node.left].self = current_node.left;
+              current_node.right = ++node_index;
+              m_node_list[current_node.right].self = current_node.right;
+
+              que.push(Range(range.from, best_position, current_node.left));
+              que.push(Range(best_position, range.to, current_node.right));
+            }
+          }
         }
-      } else {
-        // node is already cleared when node is created
-        current_node.aabb.enlarge(left_accumulated_AABB[range.to - 1]);
-
-        adjust_index(mesh_id_sorted_by, is_left_flag, range, best_axis,
-                     best_position);
-
-        current_node.left = node_index + 1;
-        m_node_list.emplace_back(node_index + 1);
-        current_node.right = node_index + 2;
-        m_node_list.emplace_back(node_index + 1);
-
-        node_index += 2;
-        que.emplace(range.from, best_position, current_node.left);
-        que.emplace(best_position, range.to, current_node.right);
       }
-    }
+    });
   }
 
+  for (auto i = 0u; i < num_threads; ++i) {
+    threads[i].join();
+  }
+
+  m_node_list.resize(++node_index);
   m_node_list.shrink_to_fit();
 
   reorder_node(5);
