@@ -478,4 +478,54 @@ ExpressionDividesValue<PointType> normalize(PointType &&p) {
 
 using Vec3 = Point3F;
 
+template <typename T, std::size_t D> class PackedPoint {
+public:
+  using value_type = T;
+  using PackedValue = std::array<T, 8>;
+
+  void set(const Point<T, D> &val, const std::size_t index) noexcept;
+  const PackedValue &operator[](const std::size_t dimension) const noexcept;
+
+  const PackedValue &xs() const noexcept;
+  const PackedValue &ys() const noexcept;
+  const PackedValue &zs() const noexcept;
+
+private:
+  std::array<PackedValue, D> m_data;
+};
+
+template <typename T, std::size_t D>
+void PackedPoint<T, D>::set(const Point<T, D> &val,
+                            const std::size_t index) noexcept {
+  for (std::size_t dim = 0; dim < D; dim++) {
+    m_data[dim][index] = val[dim];
+  }
+}
+
+template <typename T, std::size_t D>
+const typename PackedPoint<T, D>::PackedValue &PackedPoint<T, D>::
+operator[](const std::size_t dimension) const noexcept {
+  return m_data[dimension];
+}
+
+template <typename T, std::size_t D>
+const typename PackedPoint<T, D>::PackedValue &PackedPoint<T, D>::xs() const
+    noexcept {
+  return m_data[0];
+}
+
+template <typename T, std::size_t D>
+const typename PackedPoint<T, D>::PackedValue &PackedPoint<T, D>::ys() const
+    noexcept {
+  return m_data[1];
+}
+
+template <typename T, std::size_t D>
+const typename PackedPoint<T, D>::PackedValue &PackedPoint<T, D>::zs() const
+    noexcept {
+  return m_data[2];
+}
+
+using Vec3x8 = PackedPoint<float, 3>;
+
 } // namespace vector

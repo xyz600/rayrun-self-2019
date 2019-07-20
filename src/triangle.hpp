@@ -7,18 +7,19 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <immintrin.h>
 #include <vector>
 
-using vector::Vec3;
+using vector::Vec3, vector::Vec3x8;
 
 struct Face {
- public:
+public:
   std::array<uint32_t, 3> vertex_index;
   std::array<uint32_t, 3> normal_index;
 };
 
 class MeshTriangle {
- public:
+public:
   MeshTriangle() = default;
   MeshTriangle(const Vec3 *vertex_root, const Vec3 *normal_root,
                const Face &face, const std::uint32_t faceid) noexcept;
@@ -34,7 +35,7 @@ class MeshTriangle {
 
   bool validate() const noexcept;
 
- private:
+private:
   std::array<std::uint32_t, 3> m_vertex_index;
   std::array<std::uint32_t, 3> m_normal_index;
   const Vec3 *m_vertex_root;
@@ -85,7 +86,7 @@ void MeshTriangle::center(Vec3 *result) const noexcept {
 }
 
 class MeshTriangleList {
- public:
+public:
   using iterator = std::vector<MeshTriangle>::iterator;
   using const_iterator = std::vector<MeshTriangle>::const_iterator;
 
@@ -107,7 +108,7 @@ class MeshTriangleList {
 
   std::size_t size() const noexcept;
 
- private:
+private:
   std::vector<Vec3> m_vertex_list;
   std::vector<Vec3> m_normal_list;
   std::vector<MeshTriangle> m_mesh_list;
@@ -169,7 +170,7 @@ MeshTriangle &MeshTriangleList::operator[](const std::size_t index) noexcept {
 }
 
 class PackedTriangle {
- public:
+public:
   static constexpr float InvalidDistance =
       std::numeric_limits<float>::infinity();
 
@@ -177,7 +178,6 @@ class PackedTriangle {
   bool intersect(RayExt &ray) const noexcept;
   float intersect_distance(RayExt &ray) const noexcept;
 
- private:
   std::array<Vec3, 3> ps;
   Vec3 offset;
 };
@@ -231,4 +231,107 @@ float PackedTriangle::intersect_distance(RayExt &ray) const noexcept {
   } else {
     return InvalidDistance;
   }
+}
+
+class PackedTrianglex8 {
+public:
+  static constexpr float InvalidDistance =
+      std::numeric_limits<float>::infinity();
+
+  static constexpr std::size_t InvalidIndex =
+      std::numeric_limits<std::size_t>::max();
+
+  PackedTrianglex8::PackedTrianglex8(
+      MeshTriangleList::const_iterator begin,
+      MeshTriangleList::const_iterator end) noexcept;
+
+  std::size_t intersect_distance(RayExt &ray) const noexcept;
+
+  std::size_t size() const noexcept;
+
+private:
+  std::array<Vec3x8, 3> m_ps;
+  Vec3x8 m_offset;
+  std::size_t m_size;
+};
+
+std::size_t PackedTrianglex8::size() const noexcept { return m_size; }
+
+PackedTrianglex8::PackedTrianglex8(
+    MeshTriangleList::const_iterator begin,
+    MeshTriangleList::const_iterator end) noexcept
+    : m_size(std::distance(begin, end)) {
+  for (std::size_t i = 0; i < 8; i++) {
+    const std::size_t index = std::min(i, m_size - 1);
+    PackedTriangle triangle(*(begin + index));
+    m_ps[0].set(triangle.ps[0], i);
+    m_ps[1].set(triangle.ps[1], i);
+    m_ps[2].set(triangle.ps[2], i);
+    m_offset.set(triangle.offset, i);
+  }
+}
+
+std::size_t PackedTrianglex8::intersect_distance(RayExt &ray) const noexcept {
+
+  __m256 pos_xs = _mm256_set1_ps(ray.pos[0]);
+  __m256 pos_ys = _mm256_set1_ps(ray.pos[1]);
+  __m256 pos_zs = _mm256_set1_ps(ray.pos[2]);
+
+  __m256 dir_xs = _mm256_set1_ps(ray.dir[0]);
+  __m256 dir_ys = _mm256_set1_ps(ray.dir[1]);
+  __m256 dir_zs = _mm256_set1_ps(ray.dir[2]);
+
+  __m256 offset_zs = _mm256_loadu_ps(m_offset.zs().data());
+
+  const auto dotx8 = [&](const __m256 &xs1, const __m256 &ys1, const __m256 &zs1,
+                   const __m256 &xs2, const __m256 &ys2, const __m256 &zs2) {
+    __m256 ret = _mm256_mul_ps(xs1, xs2);
+    ret = _mm256_fmadd_ps(ys1, ys2, ret);
+    return _mm256_fmadd_ps(zs1, zs2, ret);
+  };
+
+  __m256 ps_xs = _mm256_loadu_ps(m_ps[2].xs().data());
+  __m256 ps_ys = _mm256_loadu_ps(m_ps[2].ys().data());
+  __m256 ps_zs = _mm256_loadu_ps(m_ps[2].zs().data());
+
+  __m256 os = _mm256_add_ps(offset_zs, dotx8(ps_xs, ps_ys, ps_zs, pos_xs, pos_ys, pos_zs));
+  __m256 ns = dotx8(ps_xs, ps_ys, ps_zs, dir_xs, dir_ys, dir_zs);
+  __m256 ts = _mm256_sub_ps(_mm256_set1_ps(0.0), _mm256_div_ps(os, ns));
+
+  ps_xs = _mm256_loadu_ps(m_ps[0].xs().data());
+  ps_ys = _mm256_loadu_ps(m_ps[0].ys().data());
+  ps_zs = _mm256_loadu_ps(m_ps[0].zs().data());
+
+  __m256 offset_xs = _mm256_loadu_ps(m_offset.xs().data());
+  os = _mm256_add_ps(offset_xs,
+                     dotx8(ps_xs, ps_ys, ps_zs, pos_xs, pos_ys, pos_zs));
+  ns = dotx8(ps_xs, ps_ys, ps_zs, dir_xs, dir_ys, dir_zs);
+  __m256 us = _mm256_fmadd_ps(ts, ns, os);
+
+  ps_xs = _mm256_loadu_ps(m_ps[1].xs().data());
+  ps_ys = _mm256_loadu_ps(m_ps[1].ys().data());
+  ps_zs = _mm256_loadu_ps(m_ps[1].zs().data());
+
+  __m256 offset_ys = _mm256_loadu_ps(m_offset.ys().data());
+  os = _mm256_add_ps(offset_ys,
+                     dotx8(ps_xs, ps_ys, ps_zs, pos_xs, pos_ys, pos_zs));
+  ns = dotx8(ps_xs, ps_ys, ps_zs, dir_xs, dir_ys, dir_zs);
+  __m256 vs = _mm256_fmadd_ps(ts, ns, os);
+
+  std::array<float, 8> tx8, ux8, vx8;
+  _mm256_storeu_ps(tx8.data(), ts);
+  _mm256_storeu_ps(ux8.data(), us);
+  _mm256_storeu_ps(vx8.data(), vs);
+
+  std::size_t index = InvalidIndex;
+  for (std::size_t i = 0; i < m_size; i++) {
+    if (ray.tnear < tx8[i] && tx8[i] < ray.tfar && 0 <= ux8[i] && 0 <= vx8[i] &&
+        ux8[i] + vx8[i] <= 1) {
+      ray.tfar = tx8[i];
+      ray.u = ux8[i];
+      ray.v = vx8[i];
+      index = i;
+    }
+  }
+  return index;
 }

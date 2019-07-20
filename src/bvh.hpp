@@ -38,6 +38,7 @@ private:
 
     std::size_t leaf_meshid_from;
     std::size_t leaf_meshid_to;
+    std::size_t start_mesh_index;
 
     Node() noexcept { clear(); }
 
@@ -68,6 +69,7 @@ private:
       aabb = src.aabb;
       leaf_meshid_from = src.leaf_meshid_from;
       leaf_meshid_to = src.leaf_meshid_to;
+      start_mesh_index = src.start_mesh_index;
     }
   };
 
@@ -106,6 +108,8 @@ private:
                          std::queue<std::int32_t> &que,
                          std::vector<std::int32_t> &order);
 
+  void setup_packed_triangle() noexcept;
+
   static constexpr std::int32_t AxisX = 0;
   static constexpr std::int32_t AxisY = 1;
   static constexpr std::int32_t AxisZ = 2;
@@ -119,7 +123,7 @@ private:
   static constexpr float CostBoundingBoxIntersect = 1.0;
   static constexpr float CostPolygonIntersect = 1.0;
 
-  static constexpr std::int32_t leaf_size_threashold = 8;
+  static constexpr std::int32_t leaf_size_threashold = 16;
 
   void
   validate_range(const std::array<std::vector<int32_t>, 3> &mesh_id_sorted_by,
@@ -136,13 +140,46 @@ private:
   // ÉmÅ[Éh
   std::vector<Node> m_node_list;
   MeshTriangleList m_mesh_list;
-  std::vector<PackedTriangle> m_triangle_list;
+  std::vector<PackedTrianglex8> m_packed_triangle_list;
 };
 
 // =================================
 // implementation
 
 SimpleBVH::SimpleBVH() {}
+
+void SimpleBVH::setup_packed_triangle() noexcept {
+  std::queue<std::size_t> que;
+  que.push(0);
+
+  std::size_t packed_leaf_index = 0;
+
+  while (!que.empty()) {
+    const auto node_index = que.front();
+    que.pop();
+
+    auto &node = m_node_list[node_index];
+
+    if (!node.is_leaf()) {
+      que.push(node.left);
+      que.push(node.right);
+    } else {
+      const std::size_t mesh_index_from = packed_leaf_index;
+      node.start_mesh_index = node.leaf_meshid_from;
+
+      for (std::size_t mesh_index = node.leaf_meshid_from;
+           mesh_index < node.leaf_meshid_to; mesh_index += 8) {
+        const std::size_t to_index =
+            std::min(mesh_index + 8, node.leaf_meshid_to);
+        m_packed_triangle_list.emplace_back(m_mesh_list.begin() + mesh_index,
+                                            m_mesh_list.begin() + to_index);
+        packed_leaf_index++;
+      }
+      node.leaf_meshid_from = mesh_index_from;
+      node.leaf_meshid_to = packed_leaf_index;
+    }
+  }
+}
 
 bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
   m_mesh_list = std::forward<MeshTriangleList>(mesh_list);
@@ -187,7 +224,7 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
   TaskQueue<Range> que(m_mesh_list.size());
   que.push(Range(0, num_mesh, node_index));
 
-  constexpr std::size_t num_threads = 4;
+  constexpr std::size_t num_threads = 1;
   std::vector<std::thread> threads(num_threads);
 
   for (auto i = 0u; i < num_threads; ++i) {
@@ -260,9 +297,7 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
   reorder_node(5);
   reorder_mesh(mesh_index_list);
 
-  for (auto &mesh : m_mesh_list) {
-    m_triangle_list.emplace_back(mesh);
-  }
+  setup_packed_triangle();
 
   return true;
 }
@@ -355,7 +390,8 @@ bool SimpleBVH::intersectAnySub(std::int32_t nodeIndex, RayExt &ray,
   if (node.is_leaf()) {
     for (std::int32_t mesh_index = node.leaf_meshid_from;
          mesh_index < node.leaf_meshid_to; mesh_index++) {
-      if (m_triangle_list[mesh_index].intersect(ray)) {
+      if (m_packed_triangle_list[mesh_index].intersect_distance(ray) !=
+          PackedTrianglex8::InvalidIndex) {
         return true;
       }
     }
@@ -572,8 +608,11 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
     bool success = false;
     for (std::int32_t mesh_index = node.leaf_meshid_from;
          mesh_index < node.leaf_meshid_to; mesh_index++) {
-      if (m_triangle_list[mesh_index].intersect(ray)) {
-        *hitMeshIndex = mesh_index;
+      const std::size_t subindex =
+          m_packed_triangle_list[mesh_index].intersect_distance(ray);
+      if (subindex != PackedTrianglex8::InvalidIndex) {
+        *hitMeshIndex = node.start_mesh_index +
+                        8 * (mesh_index - node.leaf_meshid_from) + subindex;
         success = true;
       }
     }
