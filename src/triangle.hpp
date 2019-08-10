@@ -339,7 +339,7 @@ std::size_t PackedTrianglex8::intersect_distance(RayExt &ray) const noexcept {
 		return InvalidIndex;
 	}
 	else {
-		int index = InvalidIndex;
+		std::size_t index = InvalidIndex;
 		std::array<float, 8> buf;
 		_mm256_store_ps(buf.data(), ts);
 		for (int i = 0; i < m_size; i++) {

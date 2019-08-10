@@ -73,6 +73,34 @@ private:
 		}
 	};
 
+	struct Nodex8 {
+
+		static constexpr std::size_t LeafID = std::numeric_limits<std::size_t>::max();
+
+		Nodex8(const std::vector<Node *> &node_list) {
+			std::vector<AABB *> aabb_list;
+			for (std::size_t i = 0; i < 8; i++) {
+				const std::size_t index = std::min(i, node_list.size() - 1);
+				aabb_list.push_back(&node_list[index]->aabb);
+				leaf_meshid_from[i] = node_list[index]->leaf_meshid_from;
+				leaf_meshid_to[i] = node_list[index]->leaf_meshid_to;
+			}
+			aabb.construct(aabb_list);
+			node_size_in_children = 0;
+		}
+
+		bool is_leaf(const std::size_t index) {
+			return children[index] == LeafID;
+		}
+
+		std::size_t self;
+		std::array<std::size_t, 8> children;
+		PackedAABBx8 aabb;
+		std::array <std::size_t, 8> leaf_meshid_from;
+		std::array<std::size_t, 8> leaf_meshid_to;
+		std::size_t node_size_in_children;
+	};
+
 	struct Range {
 		std::int32_t from;
 		std::int32_t to;
@@ -108,6 +136,10 @@ private:
 		std::queue<std::int32_t> &que,
 		std::vector<std::int32_t> &order);
 
+	void collect_node_to_pack(std::int32_t old_node_index, std::vector<std::size_t> &children);
+
+	void setup_packed_node() noexcept;
+
 	void setup_packed_triangle() noexcept;
 
 	static constexpr std::int32_t AxisX = 0;
@@ -139,6 +171,7 @@ private:
 
 	// ノード
 	std::vector<Node> m_node_list;
+	std::vector<Nodex8> m_nodex8_list;
 	MeshTriangleList m_mesh_list;
 	std::vector<PackedTrianglex8> m_packed_triangle_list;
 };
@@ -147,6 +180,74 @@ private:
 // implementation
 
 SimpleBVH::SimpleBVH() {}
+
+void SimpleBVH::collect_node_to_pack(std::int32_t old_node_index, std::vector<std::size_t> &children) {
+	children.clear();
+	std::queue<std::size_t> que;
+	que.push(old_node_index);
+	while (!que.empty() && que.size() + children.size() < 8) {
+		auto node = que.front();
+		que.pop();
+		if (m_node_list[node].is_leaf()) {
+			children.push_back(node);
+		}
+		else {
+			que.push(m_node_list[node].left);
+			que.push(m_node_list[node].right);
+		}
+	}
+
+	while (!que.empty()) {
+		auto node = que.front();
+		que.pop();
+		children.push_back(node);
+	}
+}
+
+
+void SimpleBVH::setup_packed_node() noexcept {
+	std::queue<std::size_t> que;
+	que.push(0);
+
+	// 旧 node id -> 新 node id 
+	std::vector<std::size_t> packed_parent_node(m_node_list.size());
+
+	std::size_t packed_node_index = 0;
+	while (!que.empty()) {
+		const auto old_node_index = que.front();
+		que.pop();
+
+		// 深さ 3 の old node を集める
+		std::vector<std::size_t> children;
+		collect_node_to_pack(old_node_index, children);
+
+		// node_index の新規ノードを作成
+		std::vector<Node *> node_list;
+		for (auto child : children) {
+			node_list.push_back(&m_node_list[child]);
+		}
+		while (node_list.size() < 8) {
+			node_list.push_back(&m_node_list[children.back()]);
+		}
+		m_nodex8_list.emplace_back(node_list);
+		m_nodex8_list.back().self = packed_node_index;
+
+		// parent node に今作ったノードを登録
+		const auto packed_parent = packed_parent_node[old_node_index];
+		auto &parent = m_nodex8_list[packed_parent];
+		parent.children[parent.node_size_in_children++] = packed_node_index;
+
+		// leaf node でないものは、その子供も pack する必要がある
+		for (std::size_t i = 0; i < children.size(); i++) {
+			if (!node_list[i]->is_leaf()) {
+				que.push(node_list[i]->self);
+			}
+			// single old child node -> parent new packed node
+			packed_parent_node[node_list[i]->self] = packed_node_index;
+		}
+		packed_node_index++;
+	}
+}
 
 void SimpleBVH::setup_packed_triangle() noexcept {
 	std::queue<std::size_t> que;
@@ -302,6 +403,8 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 	reorder_mesh(mesh_index_list);
 
 	setup_packed_triangle();
+
+	setup_packed_node();
 
 	return true;
 }

@@ -484,6 +484,8 @@ namespace vector {
 		using PackedValue = std::array<T, 8>;
 
 		void set(const Point<T, D> &val, const std::size_t index) noexcept;
+		Point<T, D> get(const std::size_t index) const noexcept;
+
 		const PackedValue &operator[](const std::size_t dimension) const noexcept;
 
 		const PackedValue &xs() const noexcept;
@@ -500,6 +502,15 @@ namespace vector {
 		for (std::size_t dim = 0; dim < D; dim++) {
 			m_data[dim][index] = val[dim];
 		}
+	}
+
+	template <typename T, std::size_t D>
+	Point<T, D> PackedPoint<T, D>::get(const std::size_t index) const noexcept {
+		Point<T, D> ret;
+		for (std::size_t dim = 0; dim < D; dim++) {
+			ret[dim] = m_data[dim][index];
+		}
+		return ret;
 	}
 
 	template <typename T, std::size_t D>

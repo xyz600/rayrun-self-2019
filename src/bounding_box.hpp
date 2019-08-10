@@ -132,3 +132,84 @@ noexcept {
 		return InvalidDistance;
 	}
 }
+
+class PackedAABBx8 {
+public:
+
+	static constexpr float InvalidDistance =
+		AABB::InvalidDistance;
+
+	static constexpr std::size_t InvalidIndex =
+		std::numeric_limits<std::size_t>::max();
+
+	PackedAABBx8();
+	void construct(const std::vector<AABB *> &aabb_list);
+
+	bool intersect(const RayExt &ray, float currentIntersectT) const noexcept;
+
+	float intersect_distance(const RayExt &ray, float currentIntersectT) const noexcept;
+
+	Vec3x8 min_position;
+	Vec3x8 max_position;
+private:
+	std::size_t m_size;
+};
+
+PackedAABBx8::PackedAABBx8() {}
+
+void PackedAABBx8::construct(const std::vector<AABB *> &aabb_list) {
+	m_size = aabb_list.size();
+	for (std::size_t i = 0; i < 8; i++) {
+		const std::size_t index = std::min(m_size - 1, index);
+		const auto &aabb = *aabb_list[index];
+		min_position.set(aabb.min(), i);
+		max_position.set(aabb.max(), i);
+	}
+}
+
+bool PackedAABBx8::intersect(const RayExt &ray, float currentIntersectT) const noexcept {
+	return intersect_distance(ray, currentIntersectT) != InvalidDistance;
+}
+
+float PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersectT) const noexcept {
+	float distance = InvalidDistance;
+
+	for (std::size_t i = 0; i < m_size; i++) {
+		AABB aabb;
+		aabb.clear();
+		auto mins = min_position.get(i);
+		aabb.enlarge(mins);
+		auto maxs = max_position.get(i);
+		aabb.enlarge(maxs);
+
+		float tmin, tmax, tymin, tymax, tzmin, tzmax;
+		tmin = (aabb[ray.sign[0]].x() - ray.pos.x()) * ray.dinv.x();
+		tmax = (aabb[1 - ray.sign[0]].x() - ray.pos.x()) * ray.dinv.x();
+		tymin = (aabb[ray.sign[1]].y() - ray.pos.y()) * ray.dinv.y();
+		tymax = (aabb[1 - ray.sign[1]].y() - ray.pos.y()) * ray.dinv.y();
+		if ((tmin > tymax) || (tymin > tmax)) {
+			return InvalidDistance;
+		}
+		if (tymin > tmin) {
+			tmin = tymin;
+		}
+		if (tymax < tmax) {
+			tmax = tymax;
+		}
+		tzmin = (aabb[ray.sign[2]].z() - ray.pos.z()) * ray.dinv.z();
+		tzmax = (aabb[1 - ray.sign[2]].z() - ray.pos.z()) * ray.dinv.z();
+		if ((tmin > tzmax) || (tzmin > tmax)) {
+			return InvalidDistance;
+		}
+		if (tzmin > tmin) {
+			tmin = tzmin;
+		}
+		if (tzmax < tmax) {
+			tmax = tzmax;
+		}
+		if ((tmin < currentIntersectT) && (ray.tnear < tmax) && (tmin < ray.tfar)) {
+			distance = InvalidDistance;
+		}
+	}
+	return distance;
+}
