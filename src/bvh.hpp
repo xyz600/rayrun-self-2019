@@ -212,6 +212,9 @@ void SimpleBVH::setup_packed_node() noexcept {
 	// 旧 node id -> 新 node id 
 	std::vector<std::size_t> packed_parent_node(m_node_list.size());
 
+	// new_node は、parent の何番目の children として登録されているか
+	std::vector<std::size_t> children_id(m_node_list.size());
+
 	std::size_t packed_node_index = 0;
 	while (!que.empty()) {
 		const auto old_node_index = que.front();
@@ -231,15 +234,25 @@ void SimpleBVH::setup_packed_node() noexcept {
 		}
 		m_nodex8_list.emplace_back(node_list);
 		m_nodex8_list.back().self = packed_node_index;
+		m_nodex8_list.back().node_size_in_children = children.size();
+
+		// children id の登録
+		for (std::size_t i = 0; i < children.size(); i++) {
+			children_id[m_node_list[children[i]].self] = i;
+		}
 
 		// parent node に今作ったノードを登録
 		const auto packed_parent = packed_parent_node[old_node_index];
 		auto &parent = m_nodex8_list[packed_parent];
-		parent.children[parent.node_size_in_children++] = packed_node_index;
+		assert(children_id[old_node_index] < 8);
+		parent.children[children_id[old_node_index]] = packed_node_index;
 
 		// leaf node でないものは、その子供も pack する必要がある
 		for (std::size_t i = 0; i < children.size(); i++) {
-			if (!node_list[i]->is_leaf()) {
+			if (node_list[i]->is_leaf()) {
+				m_nodex8_list.back().children[i] = Nodex8::LeafID;
+			}
+			else {
 				que.push(node_list[i]->self);
 			}
 			// single old child node -> parent new packed node
