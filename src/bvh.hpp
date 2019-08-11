@@ -575,9 +575,10 @@ bool SimpleBVH::intersectAnySub(std::int32_t nodeIndex, RayExt &ray,
 	std::int32_t *hitMeshIndex) const {
 
 	const auto &node = m_nodex8_list[nodeIndex];
-	std::array<float, 8> distance_array;
 
-	node.aabb.intersect_distance(ray, ray.tfar, distance_array);
+	__m256 distance = node.aabb.intersect_distance(ray, ray.tfar);
+	std::array<float, 8> distance_array;
+	_mm256_storeu_ps(distance_array.data(), distance);
 
 	FixedVector<std::size_t, 8> valid_index;
 	for (std::size_t i = 0; i < node.node_size_in_children; i++) {
@@ -794,11 +795,13 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 	std::int32_t *hitMeshIndex) const {
 
 	const auto &node = m_nodex8_list[nodeIndex];
-	std::array<float, 8> distance_array;
 
-	node.aabb.intersect_distance(ray, ray.tfar, distance_array);
+	__m256 distance = node.aabb.intersect_distance(ray, ray.tfar);
+	std::array<float, 8> distance_array;
+	_mm256_storeu_ps(distance_array.data(), distance);
 
 	FixedVector<std::size_t, 8> valid_index;
+
 	for (std::size_t i = 0; i < node.node_size_in_children; i++) {
 		if (distance_array[i] != PackedAABBx8::InvalidDistance) {
 			valid_index.push_back(i);

@@ -150,7 +150,7 @@ public:
 
 	void construct(const std::vector<AABB *> &aabb_list);
 
-	void intersect_distance(const RayExt &ray, float currentIntersectT, std::array<float, 8> &distance_array) const noexcept;
+	__m256 PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersectT) const noexcept;
 
 	Vec3x8 min_position;
 	Vec3x8 max_position;
@@ -182,7 +182,7 @@ void PackedAABBx8::construct(const std::vector<AABB *> &aabb_list) {
 	}
 }
 
-void PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersectT, std::array<float, 8> &distance_array) const noexcept {
+__m256 PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersectT) const noexcept {
 
 	auto setup_ts = [&](const Vec3x8::PackedValue &min_data, const Vec3x8::PackedValue &max_data, const float pos, const float dinv, const bool sign) {
 
@@ -234,5 +234,5 @@ void PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersectT
 	);
 
 	__m256 distances = _mm256_blendv_ps(_mm256_set1_ps(InvalidDistance), min_ts_xs, mask);
-	_mm256_storeu_ps(distance_array.data(), distances);
+	return distances;
 }
