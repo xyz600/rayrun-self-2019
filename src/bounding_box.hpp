@@ -4,6 +4,8 @@
 #include "triangle.hpp"
 #include "vec.hpp"
 
+#include <immintrin.h>
+
 using vector::Vec3;
 
 class AABB {
@@ -182,46 +184,55 @@ void PackedAABBx8::construct(const std::vector<AABB *> &aabb_list) {
 
 void PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersectT, std::array<float, 8> &distance_array) const noexcept {
 
-	for (std::size_t i = 0; i < m_size; i++) {
-		AABB aabb;
-		aabb.clear();
-		auto mins = min_position.get(i);
-		aabb.enlarge(mins);
-		auto maxs = max_position.get(i);
-		aabb.enlarge(maxs);
+	auto setup_ts = [&](const Vec3x8::PackedValue &min_data, const Vec3x8::PackedValue &max_data, const float pos, const float dinv, const bool sign) {
 
-		float tmin, tmax, tymin, tymax, tzmin, tzmax;
-		tmin = (aabb[ray.sign[0]].x() - ray.pos.x()) * ray.dinv.x();
-		tmax = (aabb[1 - ray.sign[0]].x() - ray.pos.x()) * ray.dinv.x();
-		tymin = (aabb[ray.sign[1]].y() - ray.pos.y()) * ray.dinv.y();
-		tymax = (aabb[1 - ray.sign[1]].y() - ray.pos.y()) * ray.dinv.y();
-		if ((tmin > tymax) || (tymin > tmax)) {
-			distance_array[i] = InvalidDistance;
-			continue;
-		}
-		if (tymin > tmin) {
-			tmin = tymin;
-		}
-		if (tymax < tmax) {
-			tmax = tymax;
-		}
-		tzmin = (aabb[ray.sign[2]].z() - ray.pos.z()) * ray.dinv.z();
-		tzmax = (aabb[1 - ray.sign[2]].z() - ray.pos.z()) * ray.dinv.z();
-		if ((tmin > tzmax) || (tzmin > tmax)) {
-			distance_array[i] = InvalidDistance;
-			continue;
-		}
-		if (tzmin > tmin) {
-			tmin = tzmin;
-		}
-		if (tzmax < tmax) {
-			tmax = tzmax;
-		}
-		if ((tmin < currentIntersectT) && (ray.tnear < tmax) && (tmin < ray.tfar)) {
-			distance_array[i] = tmin;
+		__m256 mins = _mm256_loadu_ps(min_data.data());
+		__m256 maxs = _mm256_loadu_ps(max_data.data());
+
+		__m256 poss = _mm256_set1_ps(pos);
+		__m256 dinvs = _mm256_set1_ps(dinv);
+
+		if (sign) {
+			return std::make_pair(
+				_mm256_mul_ps(dinvs, _mm256_sub_ps(maxs, poss)),
+				_mm256_mul_ps(dinvs, _mm256_sub_ps(mins, poss))
+			);
 		}
 		else {
-			distance_array[i] = InvalidDistance;
+			return std::make_pair(
+				_mm256_mul_ps(dinvs, _mm256_sub_ps(mins, poss)),
+				_mm256_mul_ps(dinvs, _mm256_sub_ps(maxs, poss))
+			);
 		}
-	}
+	};
+
+	constexpr int LESS_THAN = 2;
+	constexpr int EQUAL = 0;
+
+	auto &[min_ts_xs, max_ts_xs] = setup_ts(min_position.xs(), max_position.xs(), ray.pos.x(), ray.dinv.x(), ray.sign[0]);
+
+	auto &[min_ts_ys, max_ts_ys] = setup_ts(min_position.ys(), max_position.ys(), ray.pos.y(), ray.dinv.y(), ray.sign[1]);
+
+	__m256 mask = _mm256_and_ps(_mm256_cmp_ps(min_ts_xs, max_ts_ys, LESS_THAN), _mm256_cmp_ps(min_ts_ys, max_ts_xs, LESS_THAN));
+
+	min_ts_xs = _mm256_max_ps(min_ts_xs, min_ts_ys);
+	max_ts_xs = _mm256_min_ps(max_ts_xs, max_ts_ys);
+
+	auto &[min_ts_zs, max_ts_zs] = setup_ts(min_position.zs(), max_position.zs(), ray.pos.z(), ray.dinv.z(), ray.sign[2]);
+
+	mask = _mm256_and_ps(mask, _mm256_and_ps(_mm256_cmp_ps(min_ts_xs, max_ts_zs, LESS_THAN), _mm256_cmp_ps(min_ts_zs, max_ts_xs, LESS_THAN)));
+
+	min_ts_xs = _mm256_max_ps(min_ts_xs, min_ts_zs);
+	max_ts_xs = _mm256_min_ps(max_ts_xs, max_ts_zs);
+
+	mask = _mm256_and_ps(
+		mask,
+		_mm256_and_ps(
+			_mm256_cmp_ps(min_ts_xs, _mm256_set1_ps(std::min<float>(currentIntersectT, ray.tfar)), LESS_THAN),
+			_mm256_cmp_ps(_mm256_set1_ps(ray.tnear), max_ts_xs, LESS_THAN)
+		)
+	);
+
+	__m256 distances = _mm256_blendv_ps(_mm256_set1_ps(InvalidDistance), min_ts_xs, mask);
+	_mm256_storeu_ps(distance_array.data(), distances);
 }
