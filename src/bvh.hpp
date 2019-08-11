@@ -814,7 +814,6 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 		for (auto idx : valid_index) {
 			if (distance_array[idx] < ray.tfar) {
 				if (node.is_leaf(idx)) {
-					bool success = false;
 					for (std::int32_t mesh_index = node.leaf_meshid_from[idx];
 						mesh_index < node.leaf_meshid_to[idx]; mesh_index++) {
 						const std::size_t subindex =
