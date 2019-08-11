@@ -92,8 +92,7 @@ const Vec3 &AABB::operator[](int32_t index) const noexcept {
 	return *(&min_position + index);
 }
 
-bool AABB::intersect(const RayExt &ray, float currentIntersectT) const
-noexcept {
+bool AABB::intersect(const RayExt &ray, float currentIntersectT) const noexcept {
 	return intersect_distance(ray, currentIntersectT) != InvalidDistance;
 }
 
@@ -143,11 +142,13 @@ public:
 		std::numeric_limits<std::size_t>::max();
 
 	PackedAABBx8();
+	PackedAABBx8(PackedAABBx8 &&src);
+
+	void operator=(PackedAABBx8 &&src);
+
 	void construct(const std::vector<AABB *> &aabb_list);
 
-	bool intersect(const RayExt &ray, float currentIntersectT) const noexcept;
-
-	float intersect_distance(const RayExt &ray, float currentIntersectT) const noexcept;
+	void intersect_distance(const RayExt &ray, float currentIntersectT, std::array<float, 8> &distance_array) const noexcept;
 
 	Vec3x8 min_position;
 	Vec3x8 max_position;
@@ -157,22 +158,29 @@ private:
 
 PackedAABBx8::PackedAABBx8() {}
 
+PackedAABBx8::PackedAABBx8(PackedAABBx8 &&src) {
+	min_position.copy_from(src.min_position);
+	max_position.copy_from(src.max_position);
+	m_size = src.m_size;
+}
+
+void PackedAABBx8::operator=(PackedAABBx8 &&src) {
+	min_position.copy_from(src.min_position);
+	max_position.copy_from(src.max_position);
+	m_size = src.m_size;
+}
+
 void PackedAABBx8::construct(const std::vector<AABB *> &aabb_list) {
 	m_size = aabb_list.size();
 	for (std::size_t i = 0; i < 8; i++) {
-		const std::size_t index = std::min(m_size - 1, index);
+		const std::size_t index = std::min(m_size - 1, i);
 		const auto &aabb = *aabb_list[index];
 		min_position.set(aabb.min(), i);
 		max_position.set(aabb.max(), i);
 	}
 }
 
-bool PackedAABBx8::intersect(const RayExt &ray, float currentIntersectT) const noexcept {
-	return intersect_distance(ray, currentIntersectT) != InvalidDistance;
-}
-
-float PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersectT) const noexcept {
-	float distance = InvalidDistance;
+void PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersectT, std::array<float, 8> &distance_array) const noexcept {
 
 	for (std::size_t i = 0; i < m_size; i++) {
 		AABB aabb;
@@ -188,7 +196,8 @@ float PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersect
 		tymin = (aabb[ray.sign[1]].y() - ray.pos.y()) * ray.dinv.y();
 		tymax = (aabb[1 - ray.sign[1]].y() - ray.pos.y()) * ray.dinv.y();
 		if ((tmin > tymax) || (tymin > tmax)) {
-			return InvalidDistance;
+			distance_array[i] = InvalidDistance;
+			continue;
 		}
 		if (tymin > tmin) {
 			tmin = tymin;
@@ -199,7 +208,8 @@ float PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersect
 		tzmin = (aabb[ray.sign[2]].z() - ray.pos.z()) * ray.dinv.z();
 		tzmax = (aabb[1 - ray.sign[2]].z() - ray.pos.z()) * ray.dinv.z();
 		if ((tmin > tzmax) || (tzmin > tmax)) {
-			return InvalidDistance;
+			distance_array[i] = InvalidDistance;
+			continue;
 		}
 		if (tzmin > tmin) {
 			tmin = tzmin;
@@ -208,8 +218,10 @@ float PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersect
 			tmax = tzmax;
 		}
 		if ((tmin < currentIntersectT) && (ray.tnear < tmax) && (tmin < ray.tfar)) {
-			distance = InvalidDistance;
+			distance_array[i] = tmin;
+		}
+		else {
+			distance_array[i] = InvalidDistance;
 		}
 	}
-	return distance;
 }

@@ -348,10 +348,12 @@ std::size_t PackedTrianglex8::intersect_distance(RayExt &ray) const noexcept {
 				ray.tfar = buf[i];
 			}
 		}
-		_mm256_store_ps(buf.data(), us);
-		ray.u = buf[index];
-		_mm256_store_ps(buf.data(), vs);
-		ray.v = buf[index];
+		if (index != InvalidIndex) {
+			_mm256_store_ps(buf.data(), us);
+			ray.u = buf[index];
+			_mm256_store_ps(buf.data(), vs);
+			ray.v = buf[index];
+		}
 		return index;
 	}
 }

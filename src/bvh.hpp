@@ -84,12 +84,33 @@ private:
 				aabb_list.push_back(&node_list[index]->aabb);
 				leaf_meshid_from[i] = node_list[index]->leaf_meshid_from;
 				leaf_meshid_to[i] = node_list[index]->leaf_meshid_to;
+				start_mesh_index[i] = node_list[index]->start_mesh_index;
 			}
 			aabb.construct(aabb_list);
-			node_size_in_children = 0;
+			node_size_in_children = node_list.size();
 		}
 
-		bool is_leaf(const std::size_t index) {
+		Nodex8(Nodex8 &&src) {
+			self = src.self;
+			std::copy(src.children.begin(), src.children.end(), children.begin());
+			std::copy(src.leaf_meshid_from.begin(), src.leaf_meshid_from.end(), leaf_meshid_from.begin());
+			std::copy(src.leaf_meshid_to.begin(), src.leaf_meshid_to.end(), leaf_meshid_to.begin());
+			std::copy(src.start_mesh_index.begin(), src.start_mesh_index.end(), start_mesh_index.begin());
+			node_size_in_children = src.node_size_in_children;
+			aabb = std::forward<PackedAABBx8>(src.aabb);
+		}
+
+		void operator=(Nodex8 &&src) {
+			self = src.self;
+			std::copy(src.children.begin(), src.children.end(), children.begin());
+			std::copy(src.leaf_meshid_from.begin(), src.leaf_meshid_from.end(), leaf_meshid_from.begin());
+			std::copy(src.leaf_meshid_to.begin(), src.leaf_meshid_to.end(), leaf_meshid_to.begin());
+			std::copy(src.start_mesh_index.begin(), src.start_mesh_index.end(), start_mesh_index.begin());
+			node_size_in_children = src.node_size_in_children;
+			aabb = std::forward<PackedAABBx8>(src.aabb);
+		}
+
+		bool is_leaf(const std::size_t index) const noexcept {
 			return children[index] == LeafID;
 		}
 
@@ -98,6 +119,7 @@ private:
 		PackedAABBx8 aabb;
 		std::array <std::size_t, 8> leaf_meshid_from;
 		std::array<std::size_t, 8> leaf_meshid_to;
+		std::array<std::size_t, 8> start_mesh_index;
 		std::size_t node_size_in_children;
 	};
 
@@ -169,6 +191,11 @@ private:
 
 	void validate_node_index();
 
+	void validate_packed_node();
+
+	void collect_range_parallel(int node_index, std::vector<std::pair<int, int>> &result);
+	void collect_range_single(int node_index, std::vector<std::pair<int, int>> &result);
+
 	// ノード
 	std::vector<Node> m_node_list;
 	std::vector<Nodex8> m_nodex8_list;
@@ -229,23 +256,21 @@ void SimpleBVH::setup_packed_node() noexcept {
 		for (auto child : children) {
 			node_list.push_back(&m_node_list[child]);
 		}
-		while (node_list.size() < 8) {
-			node_list.push_back(&m_node_list[children.back()]);
-		}
 		m_nodex8_list.emplace_back(node_list);
 		m_nodex8_list.back().self = packed_node_index;
-		m_nodex8_list.back().node_size_in_children = children.size();
 
 		// children id の登録
 		for (std::size_t i = 0; i < children.size(); i++) {
 			children_id[m_node_list[children[i]].self] = i;
 		}
 
-		// parent node に今作ったノードを登録
-		const auto packed_parent = packed_parent_node[old_node_index];
-		auto &parent = m_nodex8_list[packed_parent];
-		assert(children_id[old_node_index] < 8);
-		parent.children[children_id[old_node_index]] = packed_node_index;
+		// root node 以外なら、parent node に今作ったノードを登録
+		if (old_node_index > 0) {
+			const auto packed_parent = packed_parent_node[old_node_index];
+			auto &parent = m_nodex8_list[packed_parent];
+			assert(children_id[old_node_index] < 8);
+			parent.children[children_id[old_node_index]] = packed_node_index;
+		}
 
 		// leaf node でないものは、その子供も pack する必要がある
 		for (std::size_t i = 0; i < children.size(); i++) {
@@ -419,6 +444,8 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 
 	setup_packed_node();
 
+	validate_packed_node();
+
 	return true;
 }
 
@@ -488,6 +515,45 @@ void SimpleBVH::validate_order(const std::vector<std::int32_t> &order) {
 	assert(mesh_ids.size() == order.size());
 }
 
+void SimpleBVH::collect_range_parallel(int node_index, std::vector<std::pair<int, int>> &result) {
+	const auto &node = m_nodex8_list[node_index];
+	for (std::size_t i = 0; i < node.node_size_in_children; i++) {
+		if (node.is_leaf(i)) {
+			result.emplace_back(node.leaf_meshid_from[i], node.leaf_meshid_to[i]);
+		}
+		else {
+			collect_range_parallel(node.children[i], result);
+		}
+	}
+}
+
+void SimpleBVH::collect_range_single(int node_index, std::vector<std::pair<int, int>> &result) {
+	const auto &node = m_node_list[node_index];
+	if (node.is_leaf()) {
+		result.emplace_back(node.leaf_meshid_from, node.leaf_meshid_to);
+	}
+	else {
+		collect_range_single(node.left, result);
+		collect_range_single(node.right, result);
+	}
+}
+
+void SimpleBVH::validate_packed_node() {
+	// 子ノードを回収したとき、leaf_index_node がすべて同じか？
+	std::vector<std::pair<int, int>> leaf_range_single;
+	collect_range_single(0, leaf_range_single);
+	std::sort(leaf_range_single.begin(), leaf_range_single.end());
+
+	std::vector<std::pair<int, int>> leaf_range_parallel;
+	collect_range_parallel(0, leaf_range_parallel);
+	std::sort(leaf_range_parallel.begin(), leaf_range_parallel.end());
+	assert(leaf_range_single.size() == leaf_range_parallel.size());
+
+	for (std::size_t i = 0; i < leaf_range_single.size(); i++) {
+		assert(leaf_range_single[i] == leaf_range_parallel[i]);
+	}
+}
+
 bool SimpleBVH::intersect(RayExt &ray) const {
 	std::int32_t hitMeshIdx = 0;
 	const bool isHit = intersectSub(0, ray, &hitMeshIdx);
@@ -506,45 +572,43 @@ bool SimpleBVH::intersect(RayExt &ray) const {
 
 bool SimpleBVH::intersectAnySub(std::int32_t nodeIndex, RayExt &ray,
 	std::int32_t *hitMeshIndex) const {
-	const auto &node = m_node_list[nodeIndex];
 
-	if (node.is_leaf()) {
-		for (std::int32_t mesh_index = node.leaf_meshid_from;
-			mesh_index < node.leaf_meshid_to; mesh_index++) {
-			if (m_packed_triangle_list[mesh_index].intersect_distance(ray) !=
-				PackedTrianglex8::InvalidIndex) {
+	const auto &node = m_nodex8_list[nodeIndex];
+	std::array<float, 8> distance_array;
+
+	node.aabb.intersect_distance(ray, ray.tfar, distance_array);
+
+	std::vector<std::size_t> valid_index;
+	valid_index.reserve(8);
+	for (std::size_t i = 0; i < node.node_size_in_children; i++) {
+		if (distance_array[i] != PackedAABBx8::InvalidDistance) {
+			valid_index.push_back(i);
+		}
+	}
+
+	if (!valid_index.empty()) {
+		if (valid_index.size() > 1) {
+			std::sort(valid_index.begin(), valid_index.end(), [&](std::size_t i1, std::size_t i2) {
+				return distance_array[i1] < distance_array[i2];
+			});
+		}
+
+		for (auto idx : valid_index) {
+			if (node.is_leaf(idx)) {
+				for (std::int32_t mesh_index = node.leaf_meshid_from[idx];
+					mesh_index < node.leaf_meshid_to[idx]; mesh_index++) {
+					if (m_packed_triangle_list[mesh_index].intersect_distance(ray) !=
+						PackedTrianglex8::InvalidIndex) {
+						return true;
+					}
+				}
+			}
+			else if (intersectAnySub(node.children[idx], ray, hitMeshIndex)) {
 				return true;
 			}
 		}
-		return false;
-	} // 枝の場合は、子を見に行く
-	else {
-		const float left_aabb_distance =
-			m_node_list[node.left].aabb.intersect_distance(ray, ray.tfar);
-		const float right_aabb_distance =
-			m_node_list[node.right].aabb.intersect_distance(ray, ray.tfar);
-
-		std::int32_t near_node_id = node.left;
-		std::int32_t far_node_id = node.right;
-		if (std::isinf(left_aabb_distance) ||
-			left_aabb_distance > right_aabb_distance) {
-			std::swap(near_node_id, far_node_id);
-		}
-		const float near_distance =
-			std::min(left_aabb_distance, right_aabb_distance);
-		const float far_distance =
-			std::max(left_aabb_distance, right_aabb_distance);
-
-		if (near_distance < ray.tfar &&
-			intersectAnySub(near_node_id, ray, hitMeshIndex)) {
-			return true;
-		}
-		if (far_distance < ray.tfar &&
-			intersectAnySub(far_node_id, ray, hitMeshIndex)) {
-			return true;
-		}
-		return false;
 	}
+	return false;
 }
 
 bool SimpleBVH::intersectAny(RayExt &ray) const {
@@ -723,47 +787,50 @@ void SimpleBVH::reorder_node(const std::size_t max_depth) noexcept {
 
 bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 	std::int32_t *hitMeshIndex) const {
-	const auto &node = m_node_list[nodeIndex];
 
-	// 葉の場合は、ノードの三角形と交差判定
-	if (node.is_leaf()) {
+	const auto &node = m_nodex8_list[nodeIndex];
+	std::array<float, 8> distance_array;
+
+	node.aabb.intersect_distance(ray, ray.tfar, distance_array);
+
+	std::vector<std::size_t> valid_index;
+	valid_index.reserve(8);
+	for (std::size_t i = 0; i < node.node_size_in_children; i++) {
+		if (distance_array[i] != PackedAABBx8::InvalidDistance) {
+			valid_index.push_back(i);
+		}
+	}
+	if (valid_index.empty()) {
+		return false;
+	}
+	else {
+		if (valid_index.size() > 1) {
+			std::sort(valid_index.begin(), valid_index.end(), [&](std::size_t i1, std::size_t i2) {
+				return distance_array[i1] < distance_array[i2];
+			});
+		}
+
 		bool success = false;
-		for (std::int32_t mesh_index = node.leaf_meshid_from;
-			mesh_index < node.leaf_meshid_to; mesh_index++) {
-			const std::size_t subindex =
-				m_packed_triangle_list[mesh_index].intersect_distance(ray);
-			if (subindex != PackedTrianglex8::InvalidIndex) {
-				*hitMeshIndex = node.start_mesh_index +
-					8 * (mesh_index - node.leaf_meshid_from) + subindex;
-				success = true;
+		for (auto idx : valid_index) {
+			if (distance_array[idx] < ray.tfar) {
+				if (node.is_leaf(idx)) {
+					bool success = false;
+					for (std::int32_t mesh_index = node.leaf_meshid_from[idx];
+						mesh_index < node.leaf_meshid_to[idx]; mesh_index++) {
+						const std::size_t subindex =
+							m_packed_triangle_list[mesh_index].intersect_distance(ray);
+						if (subindex != PackedTrianglex8::InvalidIndex) {
+							*hitMeshIndex = node.start_mesh_index[idx] +
+								8 * (mesh_index - node.leaf_meshid_from[idx]) + subindex;
+							success = true;
+						}
+					}
+				}
+				else {
+					success |= intersectSub(node.children[idx], ray, hitMeshIndex);
+				}
 			}
 		}
 		return success;
-	} // 枝の場合は、子を見に行く
-	else {
-		const float left_aabb_distance =
-			m_node_list[node.left].aabb.intersect_distance(ray, ray.tfar);
-		const float right_aabb_distance =
-			m_node_list[node.right].aabb.intersect_distance(ray, ray.tfar);
-
-		std::int32_t near_node_id = node.left;
-		std::int32_t far_node_id = node.right;
-		if (std::isinf(left_aabb_distance) ||
-			left_aabb_distance > right_aabb_distance) {
-			std::swap(near_node_id, far_node_id);
-		}
-		const float near_distance =
-			std::min(left_aabb_distance, right_aabb_distance);
-		const float far_distance =
-			std::max(left_aabb_distance, right_aabb_distance);
-
-		bool update = false;
-		if (near_distance < ray.tfar) {
-			update |= intersectSub(near_node_id, ray, hitMeshIndex);
-		}
-		if (far_distance < ray.tfar) {
-			update |= intersectSub(far_node_id, ray, hitMeshIndex);
-		}
-		return update;
 	}
 }

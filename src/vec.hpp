@@ -492,6 +492,8 @@ namespace vector {
 		const PackedValue &ys() const noexcept;
 		const PackedValue &zs() const noexcept;
 
+		void copy_from(const PackedPoint &src) noexcept;
+
 	private:
 		std::array<PackedValue, D> m_data;
 	};
@@ -535,6 +537,13 @@ namespace vector {
 	const typename PackedPoint<T, D>::PackedValue &PackedPoint<T, D>::zs() const
 		noexcept {
 		return m_data[2];
+	}
+
+	template <typename T, std::size_t D>
+	void PackedPoint<T, D>::copy_from(const PackedPoint &src) noexcept {
+		for (std::size_t i = 0; i < D; i++) {
+			std::copy(src.m_data[i].begin(), src.m_data[i].end(), m_data[i].begin());
+		}
 	}
 
 	using Vec3x8 = PackedPoint<float, 3>;
