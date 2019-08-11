@@ -5,6 +5,7 @@
 #include "task_queue.hpp"
 #include "triangle.hpp"
 #include "vec.hpp"
+#include "fixed_vector.hpp"
 
 #include <array>
 #include <atomic>
@@ -578,8 +579,7 @@ bool SimpleBVH::intersectAnySub(std::int32_t nodeIndex, RayExt &ray,
 
 	node.aabb.intersect_distance(ray, ray.tfar, distance_array);
 
-	std::vector<std::size_t> valid_index;
-	valid_index.reserve(8);
+	FixedVector<std::size_t, 8> valid_index;
 	for (std::size_t i = 0; i < node.node_size_in_children; i++) {
 		if (distance_array[i] != PackedAABBx8::InvalidDistance) {
 			valid_index.push_back(i);
@@ -793,8 +793,7 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 
 	node.aabb.intersect_distance(ray, ray.tfar, distance_array);
 
-	std::vector<std::size_t> valid_index;
-	valid_index.reserve(8);
+	FixedVector<std::size_t, 8> valid_index;
 	for (std::size_t i = 0; i < node.node_size_in_children; i++) {
 		if (distance_array[i] != PackedAABBx8::InvalidDistance) {
 			valid_index.push_back(i);
