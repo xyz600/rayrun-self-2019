@@ -576,18 +576,28 @@ bool SimpleBVH::intersectAnySub(std::int32_t nodeIndex, RayExt &ray,
 
 	const auto &node = m_nodex8_list[nodeIndex];
 
+	constexpr int NOT_EQUAL = 4;
+
 	__m256 distance = node.aabb.intersect_distance(ray, ray.tfar);
-	std::array<float, 8> distance_array;
-	_mm256_storeu_ps(distance_array.data(), distance);
+	__m256 valid_mask = _mm256_cmp_ps(distance, _mm256_set1_ps(PackedAABBx8::InvalidDistance), NOT_EQUAL);
+	const auto bitmask = _mm256_movemask_ps(valid_mask);
+	std::uint64_t packed_mask = _pdep_u64(bitmask & ((1 << node.node_size_in_children) - 1), 0x0101010101010101) * 0xFF;
+
+	std::uint64_t extracted_index = _pext_u64(0x0706050403020100, packed_mask);
+
+	const int count = __popcnt64(bitmask);
 
 	FixedVector<std::size_t, 8> valid_index;
-	for (std::size_t i = 0; i < node.node_size_in_children; i++) {
-		if (distance_array[i] != PackedAABBx8::InvalidDistance) {
-			valid_index.push_back(i);
-		}
+	for (std::size_t i = 0; i < count; i++) {
+		valid_index.push_back(extracted_index & 0xff);
+		extracted_index >>= 8;
 	}
 
 	if (!valid_index.empty()) {
+
+		std::array<float, 8> distance_array;
+		_mm256_storeu_ps(distance_array.data(), distance);
+
 		if (valid_index.size() > 1) {
 			std::sort(valid_index.begin(), valid_index.end(), [&](std::size_t i1, std::size_t i2) {
 				if (node.is_leaf(i1) != node.is_leaf(i2)) {
@@ -796,21 +806,29 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 
 	const auto &node = m_nodex8_list[nodeIndex];
 
+	constexpr int NOT_EQUAL = 4;
+
 	__m256 distance = node.aabb.intersect_distance(ray, ray.tfar);
-	std::array<float, 8> distance_array;
-	_mm256_storeu_ps(distance_array.data(), distance);
+	__m256 valid_mask = _mm256_cmp_ps(distance, _mm256_set1_ps(PackedAABBx8::InvalidDistance), NOT_EQUAL);
+	const auto bitmask = _mm256_movemask_ps(valid_mask);
+	std::uint64_t packed_mask = _pdep_u64(bitmask & ((1 << node.node_size_in_children) - 1), 0x0101010101010101) * 0xFF;
+
+	std::uint64_t extracted_index = _pext_u64(0x0706050403020100, packed_mask);
+	const int count = __popcnt64(bitmask);
 
 	FixedVector<std::size_t, 8> valid_index;
-
-	for (std::size_t i = 0; i < node.node_size_in_children; i++) {
-		if (distance_array[i] != PackedAABBx8::InvalidDistance) {
-			valid_index.push_back(i);
-		}
+	for (std::size_t i = 0; i < count; i++) {
+		valid_index.push_back(extracted_index & 0xff);
+		extracted_index >>= 8;
 	}
+
 	if (valid_index.empty()) {
 		return false;
 	}
 	else {
+		std::array<float, 8> distance_array;
+		_mm256_storeu_ps(distance_array.data(), distance);
+
 		if (valid_index.size() > 1) {
 			std::sort(valid_index.begin(), valid_index.end(), [&](std::size_t i1, std::size_t i2) {
 				return distance_array[i1] < distance_array[i2];
