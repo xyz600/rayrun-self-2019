@@ -300,7 +300,8 @@ void SimpleBVH::setup_packed_node() noexcept {
 		// leaf node でないものは、その子供も pack する必要がある
 		for (std::size_t i = 0; i < children.size(); i++) {
 			if (node_list[i]->is_leaf()) {
-				m_nodex8_list.back().children[i] = Nodex8::LeafID;
+				// leaf 判定を引き継ぐために、負の値にする必要がある
+				m_nodex8_list.back().children[i] = -node_list[i]->leaf_index();
 			}
 			else {
 				que.push(node_list[i]->self);
@@ -471,20 +472,38 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 		threads[i].join();
 	}
 
+#ifdef DEBUG
+	{
+		const Range range(0, m_mesh_list.size(), 0);
+		validate_range(mesh_id_sorted_by, range);
+	}
+#endif
+
 	m_node_list.resize(++node_index);
 	m_node_list.shrink_to_fit();
 
 	m_leafnode_list.resize(leaf_index);
 	m_leafnode_list.shrink_to_fit();
 
+#ifdef DEBUG
+	validate_leaf();
+	validate_node_index();
+#endif
+
 	reorder_node(5);
 	reorder_mesh(mesh_index_list);
+
+#ifdef DEBUG
+	validate_node(0);
+#endif
 
 	setup_packed_triangle();
 
 	setup_packed_node();
 
+#ifdef DEBUG
 	validate_packed_node();
+#endif
 
 	return true;
 }
@@ -807,6 +826,10 @@ void SimpleBVH::reorder_mesh(
 	}
 	assert(new_mesh_index == m_mesh_list.size());
 
+#ifdef DEBUG
+	validate_order(order);
+#endif
+
 	std::vector<MeshTriangle> new_mesh_list(mesh_size);
 	for (std::int32_t old_mesh_id = 0; old_mesh_id < mesh_size; old_mesh_id++) {
 		const std::int32_t new_mesh_id = order[old_mesh_id];
@@ -831,6 +854,10 @@ void SimpleBVH::reorder_node(const std::size_t max_depth) noexcept {
 		que.pop();
 		visit_for_reorder(old_node_index, 0, max_depth, new_index, que, order);
 	}
+
+#ifdef DEBUG
+	validate_order(order);
+#endif
 
 	std::vector<Node> next_node_list(m_node_list.size(), 0);
 	for (std::int32_t old_node_id = 0; old_node_id < new_index; old_node_id++) {
