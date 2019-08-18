@@ -137,11 +137,13 @@ noexcept {
 class PackedAABBx8 {
 public:
 
+	using meshid_index_t = PackedTrianglex8::meshid_index_t;
+
 	static constexpr float InvalidDistance =
 		AABB::InvalidDistance;
 
-	static constexpr std::size_t InvalidIndex =
-		std::numeric_limits<std::size_t>::max();
+	static constexpr meshid_index_t InvalidIndex =
+		std::numeric_limits<meshid_index_t>::max();
 
 	PackedAABBx8();
 	PackedAABBx8(PackedAABBx8 &&src);

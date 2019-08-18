@@ -236,11 +236,14 @@ float PackedTriangle::intersect_distance(RayExt &ray) const noexcept {
 
 class PackedTrianglex8 {
 public:
+
+	using meshid_index_t = std::int32_t;
+
 	static constexpr float InvalidDistance =
 		std::numeric_limits<float>::infinity();
 
-	static constexpr std::size_t InvalidIndex =
-		std::numeric_limits<std::size_t>::max();
+	static constexpr meshid_index_t InvalidIndex =
+		std::numeric_limits<meshid_index_t>::max();
 
 	PackedTrianglex8::PackedTrianglex8(
 		MeshTriangleList::const_iterator begin,
