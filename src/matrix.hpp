@@ -105,8 +105,10 @@ template <typename T> Matrix4x4<T> Matrix4x4<T>::inverse() const noexcept {
 		for (std::size_t j = 0; j < size(); j++) {
 			if (i != j) {
 				const float coef = self[j][i];
-				I[j] -= I[i] * coef;
-				self[j] -= self[i] * coef;
+				if (abs(coef) > 1e-10) {
+					I[j] -= I[i] * coef;
+					self[j] -= self[i] * coef;
+				}
 			}
 		}
 	}

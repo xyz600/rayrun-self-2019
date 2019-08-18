@@ -47,7 +47,11 @@ bool MeshTriangle::validate() const noexcept {
 	const auto &v0 = vertex(0);
 	const auto &v1 = vertex(1);
 	const auto &v2 = vertex(2);
-	return vector::norm2(v1 - v0) != 0.0f && vector::norm2(v2 - v0) != 0.0f;
+	const Vec3 d1 = v1 - v0;
+	const Vec3 d2 = v2 - v0;
+	const auto ip = dot(d1, d2);
+	const auto area = norm2(d1) * norm2(d2);
+	return abs(ip * ip) != area;
 }
 
 void MeshTriangle::copy_from(const MeshTriangle &src) noexcept {
