@@ -54,6 +54,13 @@ private:
 			leaf_meshid_to = src.leaf_meshid_to;
 			start_mesh_index = src.start_mesh_index;
 		}
+
+		void operator=(const LeafNode &src)
+		{
+			leaf_meshid_from = src.leaf_meshid_from;
+			leaf_meshid_to = src.leaf_meshid_to;
+			start_mesh_index = src.start_mesh_index;
+		}
 	};
 
 	struct Node {
@@ -81,7 +88,9 @@ private:
 		}
 
 		node_index_t leaf_index() const noexcept {
+#ifdef DEBUG
 			assert(is_leaf());
+#endif
 			return -left;
 		}
 
@@ -137,7 +146,9 @@ private:
 		}
 
 		node_index_t leaf_index(const std::size_t index) const noexcept {
+#ifdef DEBUG
 			assert(is_leaf(index));
+#endif
 			return -children[index];
 		};
 
@@ -177,6 +188,8 @@ private:
 	void reorder_mesh(const std::vector<meshid_index_t> &mesh_index_list) noexcept;
 
 	void reorder_node(const std::size_t max_depth) noexcept;
+
+	void reorder_leafnode() noexcept;
 
 	void visit_for_reorder(node_index_t old_node_index, std::int32_t depth,
 		std::int32_t max_depth, node_index_t &new_node_index,
@@ -293,7 +306,9 @@ void SimpleBVH::setup_packed_node() noexcept {
 		if (old_node_index > 0) {
 			const auto packed_parent = packed_parent_node[old_node_index];
 			auto &parent = m_nodex8_list[packed_parent];
+#ifdef DEBUG
 			assert(children_id[old_node_index] < 8);
+#endif
 			parent.children[children_id[old_node_index]] = packed_node_index;
 		}
 
@@ -395,7 +410,7 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 	TaskQueue<Range> que(m_mesh_list.size());
 	que.push(Range(0, num_mesh, node_index));
 
-	constexpr std::size_t num_threads = 4;
+	constexpr std::size_t num_threads = 16;
 	std::vector<std::thread> threads(num_threads);
 
 	for (auto i = 0u; i < num_threads; ++i) {
@@ -504,6 +519,8 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 #ifdef DEBUG
 	validate_packed_node();
 #endif
+
+	reorder_leafnode();
 
 	return true;
 }
@@ -804,6 +821,51 @@ void SimpleBVH::visit_for_reorder(node_index_t old_node_index,
 	}
 }
 
+void SimpleBVH::reorder_leafnode() noexcept
+{
+	// m_nodex8_list のアクセス順に leaf node の order を取得
+	std::vector<node_index_t> order;
+	std::queue<node_index_t> que;
+	que.push(0);
+	order.push_back(0);
+
+	node_index_t new_leaf_index = 1;
+
+	while (!que.empty())
+	{
+		auto node_index = que.front();
+		que.pop();
+		auto &node = m_nodex8_list[node_index];
+
+		for (auto idx = 0; idx < node.node_size_in_children; idx++)
+		{
+			if (!node.is_leaf(idx))
+			{
+				que.push(node.children[idx]);
+			}
+			else {
+				order.push_back(node.leaf_index(idx));
+				node.children[idx] = -new_leaf_index++;
+			}
+		}
+	}
+#ifdef DEBUG
+	validate_order(order);
+	assert(order.size() == m_leafnode_list.size());
+#endif
+
+	// 同じサイズの buffer を用意して, copy_from
+	std::vector<LeafNode> after_node_list(m_leafnode_list.size());
+	for (node_index_t i = 0; i < m_leafnode_list.size(); i++)
+	{
+		after_node_list[i] = m_leafnode_list[order[i]];
+	}
+
+	// 書き戻す
+	std::copy(after_node_list.begin(), after_node_list.end(), m_leafnode_list.begin());
+}
+
+
 void SimpleBVH::reorder_mesh(
 	const std::vector<meshid_index_t> &mesh_index_list) noexcept {
 	const std::size_t mesh_size = m_mesh_list.size();
@@ -824,9 +886,9 @@ void SimpleBVH::reorder_mesh(
 			leaf_node.leaf_meshid_to = new_mesh_index;
 		}
 	}
-	assert(new_mesh_index == m_mesh_list.size());
 
 #ifdef DEBUG
+	assert(new_mesh_index == m_mesh_list.size());
 	validate_order(order);
 #endif
 

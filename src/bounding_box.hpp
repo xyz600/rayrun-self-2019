@@ -211,16 +211,16 @@ __m256 PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersec
 	constexpr int LESS_THAN = 2;
 	constexpr int EQUAL = 0;
 
-	auto &[min_ts_xs, max_ts_xs] = setup_ts(min_position.xs(), max_position.xs(), ray.pos.x(), ray.dinv.x(), ray.sign[0]);
+	auto[min_ts_xs, max_ts_xs] = setup_ts(min_position.xs(), max_position.xs(), ray.pos.x(), ray.dinv.x(), ray.sign[0]);
 
-	auto &[min_ts_ys, max_ts_ys] = setup_ts(min_position.ys(), max_position.ys(), ray.pos.y(), ray.dinv.y(), ray.sign[1]);
+	auto[min_ts_ys, max_ts_ys] = setup_ts(min_position.ys(), max_position.ys(), ray.pos.y(), ray.dinv.y(), ray.sign[1]);
 
 	__m256 mask = _mm256_and_ps(_mm256_cmp_ps(min_ts_xs, max_ts_ys, LESS_THAN), _mm256_cmp_ps(min_ts_ys, max_ts_xs, LESS_THAN));
 
 	min_ts_xs = _mm256_max_ps(min_ts_xs, min_ts_ys);
 	max_ts_xs = _mm256_min_ps(max_ts_xs, max_ts_ys);
 
-	auto &[min_ts_zs, max_ts_zs] = setup_ts(min_position.zs(), max_position.zs(), ray.pos.z(), ray.dinv.z(), ray.sign[2]);
+	auto[min_ts_zs, max_ts_zs] = setup_ts(min_position.zs(), max_position.zs(), ray.pos.z(), ray.dinv.z(), ray.sign[2]);
 
 	mask = _mm256_and_ps(mask, _mm256_and_ps(_mm256_cmp_ps(min_ts_xs, max_ts_zs, LESS_THAN), _mm256_cmp_ps(min_ts_zs, max_ts_xs, LESS_THAN)));
 
