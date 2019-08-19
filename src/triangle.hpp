@@ -51,7 +51,8 @@ bool MeshTriangle::validate() const noexcept {
 	const Vec3 d2 = v2 - v0;
 	const auto ip = dot(d1, d2);
 	const auto area = norm2(d1) * norm2(d2);
-	return abs(ip * ip) != area;
+	// ip と area で乗算の順序が違うので、厳密に eq にならない
+	return abs(abs(ip * ip) - area) / area > 1e-6;
 }
 
 void MeshTriangle::copy_from(const MeshTriangle &src) noexcept {
