@@ -185,6 +185,13 @@ private:
 		std::vector<AABB> &right_accumulated_AABB, std::int32_t *best_axis,
 		std::int32_t *best_position);
 
+	void select_mean_split(
+		const Range &range,
+		const std::array<std::vector<std::int32_t>, 3> &index_sorted_by,
+		std::vector<AABB> &left_accumulated_AABB,
+		std::vector<AABB> &right_accumulated_AABB, std::int32_t *best_axis,
+		std::int32_t *best_position);
+
 	void reorder_mesh(const std::vector<meshid_index_t> &mesh_index_list) noexcept;
 
 	void reorder_node(const std::size_t max_depth) noexcept;
@@ -443,7 +450,7 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 					}
 					else {
 						std::int32_t best_axis, best_position;
-						select_best_split(range, mesh_id_sorted_by, left_accumulated_AABB,
+						select_mean_split(range, mesh_id_sorted_by, left_accumulated_AABB,
 							right_accumulated_AABB, &best_axis,
 							&best_position);
 
@@ -770,6 +777,56 @@ void SimpleBVH::select_best_split(
 	}
 }
 
+void SimpleBVH::select_mean_split(
+	const Range &range,
+	const std::array<std::vector<std::int32_t>, 3> &index_sorted_by,
+	std::vector<AABB> &left_accumulated_AABB,
+	std::vector<AABB> &right_accumulated_AABB, std::int32_t *best_axis,
+	std::int32_t *best_split_position) {
+
+	AABB root;
+	// generate root bounding box
+	for (std::int32_t index = range.from; index < range.to; index++) {
+		left_accumulated_AABB[index].clear();
+		const std::int32_t mesh_id = index_sorted_by[0][index];
+		root.enlarge(m_mesh_list[mesh_id]);
+	}
+	// 上位モジュールで使うため
+	left_accumulated_AABB[range.to - 1].clear();
+	left_accumulated_AABB[range.to - 1].enlarge(root);
+
+	*best_axis = Invalid;
+	float longest_width = -1;
+
+	for (const auto axis : { AxisX, AxisY, AxisZ }) {
+		const float width = root.max()[axis] - root.min()[axis];
+		if (longest_width < width) {
+			longest_width = width;
+			*best_axis = axis;
+		}
+	}
+
+	auto calculate_threashold = [&]() {
+		Vec3 from_center, to_center;
+		m_mesh_list[index_sorted_by[*best_axis][range.from]].center(&from_center);
+		m_mesh_list[index_sorted_by[*best_axis][range.to - 1]].center(&to_center);
+		return (to_center[*best_axis] + from_center[*best_axis]) / 2.0;
+	};
+
+	const float threashold = calculate_threashold();
+	// binary search
+	std::size_t left = range.from;
+	std::size_t right = range.to;
+	while (1 < right - left) {
+		const std::size_t middle = (left + right) / 2;
+		Vec3 center;
+		m_mesh_list[index_sorted_by[*best_axis][middle]].center(&center);
+		(center[*best_axis] < threashold ? left : right) = middle;
+	}
+	*best_split_position = right;
+	assert(range.from < *best_split_position && *best_split_position < range.to);
+}
+
 void SimpleBVH::adjust_index(
 	std::array<std::vector<meshid_index_t>, 3> &index_sorted_by,
 	std::vector<std::uint8_t> &is_left_flag, const Range &range,
@@ -847,8 +904,8 @@ void SimpleBVH::reorder_leafnode() noexcept
 				order.push_back(node.leaf_index(idx));
 				node.children[idx] = -new_leaf_index++;
 			}
-		}
 	}
+}
 #ifdef DEBUG
 	validate_order(order);
 	assert(order.size() == m_leafnode_list.size());
