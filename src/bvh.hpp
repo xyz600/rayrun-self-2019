@@ -65,6 +65,7 @@ private:
 
 	struct Node {
 	public:
+		node_index_t parent;
 		node_index_t self;
 		node_index_t left;
 		node_index_t right;
@@ -77,7 +78,7 @@ private:
 		Node(std::int32_t self) noexcept : self(self) { clear(); }
 
 		void clear() noexcept {
-			left = right = SimpleBVH::Invalid;
+			left = right = parent = SimpleBVH::Invalid;
 			aabb.clear();
 		}
 
@@ -98,7 +99,6 @@ private:
 			left = -leaf_index;
 		}
 
-
 		bool is_leaf() const noexcept {
 			return left < 0;
 		}
@@ -107,6 +107,7 @@ private:
 			self = src.self;
 			left = src.left;
 			right = src.right;
+			parent = src.parent;
 			aabb = src.aabb;
 		}
 	};
@@ -185,11 +186,21 @@ private:
 		std::vector<AABB> &right_accumulated_AABB, std::int32_t *best_axis,
 		std::int32_t *best_position);
 
+	node_index_t remove_node(node_index_t node_id) noexcept;
+
+	void refit_for_insertion(node_index_t node_id) noexcept;
+
 	void reorder_mesh(const std::vector<meshid_index_t> &mesh_index_list) noexcept;
 
 	void reorder_node(const std::size_t max_depth) noexcept;
 
 	void reorder_leafnode() noexcept;
+
+	void optimize_through_insertion() noexcept;
+
+	void insert_node(node_index_t new_node_id, node_index_t node_id, node_index_t unnecessary_node) noexcept;
+
+	node_index_t search_insert_point(node_index_t node_id) const noexcept;
 
 	void visit_for_reorder(node_index_t old_node_index, std::int32_t depth,
 		std::int32_t max_depth, node_index_t &new_node_index,
@@ -230,6 +241,8 @@ private:
 
 	void validate_packed_node();
 
+	void validate_parent();
+
 	void collect_range_parallel(int node_index, std::vector<std::pair<int, int>> &result);
 	void collect_range_single(int node_index, std::vector<std::pair<int, int>> &result);
 
@@ -239,6 +252,8 @@ private:
 	std::vector<LeafNode> m_leafnode_list;
 	MeshTriangleList m_mesh_list;
 	std::vector<PackedTrianglex8> m_packed_triangle_list;
+
+	node_index_t root_node_index;
 };
 
 // =================================
@@ -272,7 +287,7 @@ void SimpleBVH::collect_node_to_pack(node_index_t old_node_index, std::vector<no
 
 void SimpleBVH::setup_packed_node() noexcept {
 	std::queue<std::size_t> que;
-	que.push(0);
+	que.push(root_node_index);
 
 	// 旧 node id -> 新 node id 
 	std::vector<std::size_t> packed_parent_node(m_node_list.size());
@@ -330,7 +345,7 @@ void SimpleBVH::setup_packed_node() noexcept {
 
 void SimpleBVH::setup_packed_triangle() noexcept {
 	std::queue<std::size_t> que;
-	que.push(0);
+	que.push(root_node_index);
 
 	std::size_t packed_leaf_index = 0;
 
@@ -366,8 +381,12 @@ void SimpleBVH::setup_packed_triangle() noexcept {
 
 bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 	m_mesh_list = std::forward<MeshTriangleList>(mesh_list);
-	m_node_list.emplace_back(0);
+
+	root_node_index = 0;
+
+	m_node_list.emplace_back(root_node_index);
 	m_node_list.resize(m_mesh_list.size() * 2);
+	m_node_list[root_node_index].parent = root_node_index;
 	m_leafnode_list.resize(m_mesh_list.size() * 2);
 
 	const std::size_t num_mesh = m_mesh_list.size();
@@ -408,10 +427,28 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 	std::vector<AABB> right_accumulated_AABB(num_mesh);
 
 	TaskQueue<Range> que(m_mesh_list.size());
-	que.push(Range(0, num_mesh, node_index));
+	que.push(Range(root_node_index, num_mesh, node_index));
 
 	constexpr std::size_t num_threads = 16;
 	std::vector<std::thread> threads(num_threads);
+
+	auto setup_leaf = [&](Node &current_node, const Range &range) {
+		const auto local_leaf_index = leaf_index++;
+		current_node.set_leaf_index(local_leaf_index);
+		auto &leaf_node = m_leafnode_list[local_leaf_index];
+		leaf_node.leaf_meshid_from = range.from;
+		leaf_node.leaf_meshid_to = range.to;
+
+		// node is already cleared when node is created
+		for (meshid_index_t mesh_index = range.from; mesh_index < range.to;
+			mesh_index++) {
+			mesh_index_list[mesh_index] =
+				mesh_id_sorted_by[AxisX][mesh_index];
+			current_node.aabb.enlarge(
+				m_mesh_list[mesh_index_list[mesh_index]]);
+		}
+		que.update(range.to - range.from);
+	};
 
 	for (auto i = 0u; i < num_threads; ++i) {
 		threads[i] = std::thread([&]() {
@@ -426,20 +463,7 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 					auto &current_node = m_node_list[range.node_index];
 
 					if (range.size() <= leaf_size_threashold) {
-
-						const auto local_leaf_index = leaf_index++;
-						current_node.set_leaf_index(local_leaf_index);
-						current_node.set_leaf(range.from, range.to, m_leafnode_list[local_leaf_index]);
-
-						// node is already cleared when node is created
-						for (meshid_index_t mesh_index = range.from; mesh_index < range.to;
-							mesh_index++) {
-							mesh_index_list[mesh_index] =
-								mesh_id_sorted_by[AxisX][mesh_index];
-							current_node.aabb.enlarge(
-								m_mesh_list[mesh_index_list[mesh_index]]);
-						}
-						que.update(range.to - range.from);
+						setup_leaf(current_node, range);
 					}
 					else {
 						std::int32_t best_axis, best_position;
@@ -448,19 +472,7 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 							&best_position);
 
 						if (best_axis == Invalid) {
-							const auto local_leaf_index = leaf_index++;
-							current_node.set_leaf_index(local_leaf_index);
-							current_node.set_leaf(range.from, range.to, m_leafnode_list[local_leaf_index]);
-
-							// node is already cleared when node is created
-							for (meshid_index_t mesh_index = range.from; mesh_index < range.to;
-								mesh_index++) {
-								mesh_index_list[mesh_index] =
-									mesh_id_sorted_by[AxisX][mesh_index];
-								current_node.aabb.enlarge(
-									m_mesh_list[mesh_index_list[mesh_index]]);
-							}
-							que.update(range.to - range.from);
+							setup_leaf(current_node, range);
 						}
 						else {
 							// node is already cleared when node is created
@@ -471,8 +483,10 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 
 							current_node.left = ++node_index;
 							m_node_list[current_node.left].self = current_node.left;
+							m_node_list[current_node.left].parent = current_node.self;
 							current_node.right = ++node_index;
 							m_node_list[current_node.right].self = current_node.right;
+							m_node_list[current_node.right].parent = current_node.self;
 
 							que.push(Range(range.from, best_position, current_node.left));
 							que.push(Range(best_position, range.to, current_node.right));
@@ -489,7 +503,7 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 
 #ifdef DEBUG
 	{
-		const Range range(0, m_mesh_list.size(), 0);
+		const Range range(0, m_mesh_list.size(), root_node_index);
 		validate_range(mesh_id_sorted_by, range);
 	}
 #endif
@@ -503,13 +517,22 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 #ifdef DEBUG
 	validate_leaf();
 	validate_node_index();
+	validate_parent();
+#endif
+
+	optimize_through_insertion();
+
+#ifdef DEBUG
+	validate_leaf();
+	validate_node_index();
+	validate_parent();
 #endif
 
 	reorder_node(5);
 	reorder_mesh(mesh_index_list);
 
 #ifdef DEBUG
-	validate_node(0);
+	validate_node(root_node_index);
 #endif
 
 	setup_packed_triangle();
@@ -524,6 +547,205 @@ bool SimpleBVH::construct(MeshTriangleList &&mesh_list) {
 
 	return true;
 }
+
+void SimpleBVH::optimize_through_insertion() noexcept
+{
+	auto calculate_cost = [&](node_index_t index) {
+		const auto &cur = m_node_list[index];
+		const auto &left = m_node_list[cur.left];
+		const auto &right = m_node_list[cur.right];
+
+		const double cost_area = cur.aabb.area();
+		const double cost_min = cost_area / std::min(left.aabb.area(), right.aabb.area());
+		const double cost_sum = cost_area / (left.aabb.area() + right.aabb.area());
+		return cost_area * cost_min * cost_sum;
+	};
+
+	// inner node を集める
+	std::vector<std::pair<double, node_index_t>> inner_node;
+	// depth 2 以下のノードを delete すると、root node の位置を変える必要があって、面倒なのでやらない
+	for (node_index_t i = 1; i < m_node_list.size(); i++)
+	{
+		if (!m_node_list[i].is_leaf())
+		{
+			inner_node.emplace_back(-calculate_cost(i), i);
+		}
+	}
+	std::sort(inner_node.begin(), inner_node.end());
+
+	// 1% の node に対して、以下を実行
+	const std::size_t optimize_node_threashold = std::min<std::size_t>(inner_node.size(), std::max<std::size_t>(15, inner_node.size() / 10));
+
+	std::size_t optimize_count = 0;
+
+	std::vector<bool> removed(m_node_list.size(), false);
+
+	for (auto[_, node_id] : inner_node)
+	{
+		if (node_id != root_node_index && !removed[node_id])
+		{
+			// node を 1つ引っこ抜く
+			const auto unnecessary_node = remove_node(node_id);
+
+			// どこに挿入するのが最適かを、branch and bound で決定
+			const auto insert_point = search_insert_point(node_id);
+			insert_node(node_id, insert_point, unnecessary_node);
+			optimize_count++;
+
+			removed[unnecessary_node] = true;
+			removed[node_id] = true;
+
+			if (optimize_count == optimize_node_threashold)
+			{
+				break;
+			}
+		}
+	}
+}
+
+struct InsertionOptimizationCost
+{
+	using node_index_t = SimpleBVH::node_index_t;
+
+	double DirectCost;
+	double InducedCost;
+	node_index_t node;
+
+	InsertionOptimizationCost()
+		: DirectCost(0), InducedCost(0), node(0) {}
+
+	InsertionOptimizationCost(double DirectCost)
+		: DirectCost(DirectCost), InducedCost(0), node(0) {}
+
+	InsertionOptimizationCost(double DirectCost, double InducedCost, node_index_t node)
+		: DirectCost(DirectCost), InducedCost(InducedCost), node(node) {}
+
+	double cost() const {
+		return DirectCost + InducedCost;
+	}
+
+	double lowerbound() const noexcept {
+		return InducedCost;
+	}
+};
+
+bool operator>(const InsertionOptimizationCost &src1, const InsertionOptimizationCost &src2) {
+	return src1.cost() > src2.cost();
+}
+
+SimpleBVH::node_index_t SimpleBVH::search_insert_point(node_index_t node_id) const noexcept
+{
+	std::priority_queue<InsertionOptimizationCost, std::vector<InsertionOptimizationCost>, std::greater<InsertionOptimizationCost>> que;
+	que.emplace(m_node_list[root_node_index].aabb.area(), 0, root_node_index);
+
+	node_index_t best_insert_point = Invalid;
+	float best_cost = std::numeric_limits<float>::max();
+
+	auto union_area = [&](const AABB &bb1, const AABB &bb2) {
+		AABB ret;
+		ret.enlarge(bb1);
+		ret.enlarge(bb2);
+		return ret.area();
+	};
+
+	while (!que.empty())
+	{
+		const auto cost = que.top();
+		que.pop();
+		if (cost.lowerbound() <= best_cost)
+		{
+			if (best_cost > cost.cost()) {
+				best_cost = cost.cost();
+				best_insert_point = cost.node;
+			}
+			const auto &node = m_node_list[cost.node];
+			const auto &insert_node = m_node_list[node_id];
+			const double induced_diff = union_area(node.aabb, insert_node.aabb) - node.aabb.area();
+
+			if (!node.is_leaf()) {
+				que.emplace(cost.InducedCost + induced_diff, union_area(m_node_list[node.left].aabb, insert_node.aabb), node.left);
+				que.emplace(cost.InducedCost + induced_diff, union_area(m_node_list[node.right].aabb, insert_node.aabb), node.right);
+			}
+		}
+	}
+	return best_insert_point;
+}
+
+void SimpleBVH::insert_node(node_index_t new_node_id, node_index_t insert_point_id, node_index_t empty_node_id) noexcept
+{
+	auto &new_node = m_node_list[new_node_id];
+	auto &insert_point = m_node_list[insert_point_id];
+	auto &empty_node = m_node_list[empty_node_id];
+	auto &parent = m_node_list[insert_point.parent];
+
+	if (insert_point.self == root_node_index)
+	{
+		root_node_index = empty_node.self;
+	}
+	else {
+		// parent <-> empty_node
+		(parent.left == insert_point.self ? parent.left : parent.right) = empty_node.self;
+		empty_node.parent = parent.self;
+	}
+
+	// empty_node <-> insert_point
+	empty_node.left = insert_point.self;
+	insert_point.parent = empty_node.self;
+
+	// empty_node <-> new_node
+	empty_node.right = new_node.self;
+	new_node.parent = empty_node.self;
+
+	refit_for_insertion(empty_node_id);
+}
+
+SimpleBVH::node_index_t SimpleBVH::remove_node(node_index_t node_id) noexcept
+{
+	const auto get_sibling = [&](const node_index_t node_id) {
+		const auto &parent = m_node_list[m_node_list[node_id].parent];
+		return parent.right == node_id ? parent.left : parent.right;
+	};
+
+	auto &cur = m_node_list[node_id];
+	auto &parent = m_node_list[cur.parent];
+	auto &sibling = m_node_list[get_sibling(node_id)];
+	auto &parent_parent = m_node_list[parent.parent];
+
+	const auto unnecessary_node = parent.self;
+
+	// replace parent -> sibling
+	(parent_parent.left == parent.self ? parent_parent.left : parent_parent.right) = sibling.self;
+	sibling.parent = parent_parent.self;
+
+	// clear parent
+	parent.left = parent.right = Invalid;
+	parent.parent = parent.self;
+
+	// set current as root
+	cur.parent = node_id;
+
+	if (unnecessary_node == root_node_index)
+	{
+		root_node_index = sibling.self;
+	}
+	refit_for_insertion(sibling.self);
+
+	return unnecessary_node;
+}
+
+
+void SimpleBVH::validate_parent()
+{
+	for (node_index_t i = 0; i < m_node_list.size(); i++)
+	{
+		const auto &cur = m_node_list[i];
+		if (!cur.is_leaf()) {
+			assert(m_node_list[cur.left].parent == cur.self);
+			assert(m_node_list[cur.right].parent == cur.self);
+		}
+	}
+}
+
 
 void SimpleBVH::validate_range(
 	const std::array<std::vector<meshid_index_t>, 3> &mesh_id_sorted_by,
@@ -540,7 +762,7 @@ void SimpleBVH::validate_range(
 
 void SimpleBVH::validate_node_index() {
 	std::set<node_index_t> node_id_set;
-	node_id_set.insert(0);
+	node_id_set.insert(root_node_index);
 	for (auto &node : m_node_list) {
 		if (!node.is_leaf()) {
 			node_id_set.insert(node.left);
@@ -620,7 +842,7 @@ void SimpleBVH::collect_range_single(int node_index, std::vector<std::pair<int, 
 void SimpleBVH::validate_packed_node() {
 	// 子ノードを回収したとき、leaf_index_node がすべて同じか？
 	std::vector<std::pair<int, int>> leaf_range_single;
-	collect_range_single(0, leaf_range_single);
+	collect_range_single(root_node_index, leaf_range_single);
 	std::sort(leaf_range_single.begin(), leaf_range_single.end());
 
 	std::vector<std::pair<int, int>> leaf_range_parallel;
@@ -865,6 +1087,23 @@ void SimpleBVH::reorder_leafnode() noexcept
 	std::copy(after_node_list.begin(), after_node_list.end(), m_leafnode_list.begin());
 }
 
+void SimpleBVH::refit_for_insertion(node_index_t node_id) noexcept
+{
+	auto &node = m_node_list[node_id];
+	if (!node.is_leaf())
+	{
+		auto &left = m_node_list[node.left];
+		auto &right = m_node_list[node.right];
+
+		node.aabb.clear();
+		node.aabb.enlarge(left.aabb);
+		node.aabb.enlarge(right.aabb);
+	}
+	if (root_node_index != node.self)
+	{
+		refit_for_insertion(node.parent);
+	}
+}
 
 void SimpleBVH::reorder_mesh(
 	const std::vector<meshid_index_t> &mesh_index_list) noexcept {
@@ -907,7 +1146,7 @@ void SimpleBVH::reorder_node(const std::size_t max_depth) noexcept {
 	std::vector<node_index_t> order(m_node_list.size());
 
 	std::queue<node_index_t> que;
-	que.push(0);
+	que.push(root_node_index);
 
 	node_index_t new_index = 0;
 
@@ -932,7 +1171,11 @@ void SimpleBVH::reorder_node(const std::size_t max_depth) noexcept {
 			new_node.right = order[m_node_list[old_node_id].right];
 		}
 	}
+
+	// TODO: setup parent appropreately
+
 	std::swap(next_node_list, m_node_list);
+	root_node_index = 0;
 }
 
 bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
