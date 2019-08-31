@@ -27,7 +27,7 @@ public:
 	bool intersect(RayExt &ray) const;
 	bool intersectAny(RayExt &ray) const;
 
-	using meshid_index_t = PackedTrianglex8::meshid_index_t;
+	using meshid_index_t = PackedTrianglex16::meshid_index_t;
 	using node_index_t = std::int32_t;
 
 private:
@@ -166,7 +166,7 @@ private:
 
 		Nodex16(const std::vector<Node*>& node_list) {
 			std::vector<AABB*> aabb_list;
-			for (std::size_t i = 0; i < 8; i++) {
+			for (std::size_t i = 0; i < 16; i++) {
 				const std::size_t index = std::min(i, node_list.size() - 1);
 				aabb_list.push_back(&node_list[index]->aabb);
 			}
@@ -285,7 +285,7 @@ private:
 	std::vector<Nodex16> m_nodex16_list;
 	std::vector<LeafNode> m_leafnode_list;
 	MeshTriangleList m_mesh_list;
-	std::vector<PackedTrianglex8> m_packed_triangle_list;
+	std::vector<PackedTrianglex16> m_packed_triangle_list;
 };
 
 // =================================
@@ -332,7 +332,7 @@ void SimpleBVH::setup_packed_node() noexcept {
 		const auto old_node_index = que.front();
 		que.pop();
 
-		// 深さ 3 の old node を集める
+		// 深さ 4 の old node を集める
 		std::vector<node_index_t> children;
 		collect_node_to_pack(old_node_index, children);
 
@@ -704,7 +704,7 @@ bool SimpleBVH::intersectAnySub(node_index_t nodeIndex, RayExt &ray,
 	constexpr int NOT_EQUAL = 4;
 
 	auto distance = node.aabb.intersect_distance(ray, ray.tfar);
-	auto bitmask = _mm512_cmp_ps_mask(distance, _mm512_set1_ps(PackedAABBx8::InvalidDistance), NOT_EQUAL);
+	auto bitmask = _mm512_cmp_ps_mask(distance, _mm512_set1_ps(PackedAABBx16::InvalidDistance), NOT_EQUAL);
 	std::uint64_t packed_mask = _pdep_u64(bitmask & ((1 << node.node_size_in_children) - 1), 0x1111111111111111ull) * 0xF;
 
 	std::uint64_t extracted_index = _pext_u64(0xfedcba9876543210, packed_mask);
@@ -713,7 +713,7 @@ bool SimpleBVH::intersectAnySub(node_index_t nodeIndex, RayExt &ray,
 
 	FixedVector<std::size_t, 16> valid_index;
 	for (std::size_t i = 0; i < count; i++) {
-		valid_index.push_back(extracted_index & 0xff);
+		valid_index.push_back(extracted_index & 0xf);
 		extracted_index >>= 4;
 	}
 
@@ -739,7 +739,7 @@ bool SimpleBVH::intersectAnySub(node_index_t nodeIndex, RayExt &ray,
 				for (meshid_index_t mesh_index = leaf_node.leaf_meshid_from;
 					mesh_index < leaf_node.leaf_meshid_to; mesh_index++) {
 					if (m_packed_triangle_list[mesh_index].intersect_distance(ray) !=
-						PackedTrianglex8::InvalidIndex) {
+						PackedTrianglex16::InvalidIndex) {
 						return true;
 					}
 				}
@@ -830,8 +830,6 @@ void SimpleBVH::adjust_index(
 		const auto mesh_id = index_sorted_by[selected_axis][index];
 		is_left_flag[mesh_id] = Right;
 	}
-
-	const std::size_t left_size = split_position - range.from;
 
 	for (auto axis : { AxisX, AxisY, AxisZ }) {
 		if (selected_axis != axis) {
@@ -989,7 +987,7 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 	constexpr int NOT_EQUAL = 4;
 
 	auto distance = node.aabb.intersect_distance(ray, ray.tfar);
-	auto bitmask = _mm512_cmp_ps_mask(distance, _mm512_set1_ps(PackedAABBx8::InvalidDistance), NOT_EQUAL);
+	auto bitmask = _mm512_cmp_ps_mask(distance, _mm512_set1_ps(PackedAABBx16::InvalidDistance), NOT_EQUAL);
 	std::uint64_t packed_mask = _pdep_u64(bitmask & ((1 << node.node_size_in_children) - 1), 0x1111111111111111ull) * 0xF;
 
 	std::uint64_t extracted_index = _pext_u64(0xfedcba9876543210, packed_mask);
@@ -998,7 +996,7 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 
 	FixedVector<std::size_t, 16> valid_index;
 	for (std::size_t i = 0; i < count; i++) {
-		valid_index.push_back(extracted_index & 0xff);
+		valid_index.push_back(extracted_index & 0xf);
 		extracted_index >>= 4;
 	}
 
@@ -1024,7 +1022,7 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 						mesh_index < leaf_node.leaf_meshid_to; mesh_index++) {
 						const std::size_t subindex =
 							m_packed_triangle_list[mesh_index].intersect_distance(ray);
-						if (subindex != PackedTrianglex8::InvalidIndex) {
+						if (subindex != PackedTrianglex16::InvalidIndex) {
 							*hitMeshIndex = leaf_node.start_mesh_index +
 								16 * (mesh_index - leaf_node.leaf_meshid_from) + subindex;
 							success = true;

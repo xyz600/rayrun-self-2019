@@ -209,7 +209,6 @@ __m256 PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersec
 	};
 
 	constexpr int LESS_THAN = 2;
-	constexpr int EQUAL = 0;
 
 	auto[min_ts_xs, max_ts_xs] = setup_ts(min_position.xs(), max_position.xs(), ray.pos.x(), ray.dinv.x(), ray.sign[0]);
 
@@ -281,7 +280,7 @@ void PackedAABBx16::operator=(PackedAABBx16 &&src) {
 
 void PackedAABBx16::construct(const std::vector<AABB *> &aabb_list) {
 	m_size = aabb_list.size();
-	for (std::size_t i = 0; i < 8; i++) {
+	for (std::size_t i = 0; i < 16; i++) {
 		const std::size_t index = std::min(m_size - 1, i);
 		const auto &aabb = *aabb_list[index];
 		min_position.set(aabb.min(), i);
@@ -314,7 +313,6 @@ __m512 PackedAABBx16::intersect_distance(const RayExt &ray, float currentInterse
 	};
 
 	constexpr int LESS_THAN = 2;
-	constexpr int EQUAL = 0;
 
 	auto[min_ts_xs, max_ts_xs] = setup_ts(min_position.xs(), max_position.xs(), ray.pos.x(), ray.dinv.x(), ray.sign[0]);
 

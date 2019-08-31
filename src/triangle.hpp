@@ -273,7 +273,7 @@ PackedTriangle<N>::PackedTriangle(
 	MeshTriangleList::const_iterator begin,
 	MeshTriangleList::const_iterator end) noexcept
 	: m_size(std::distance(begin, end)) {
-	for (std::size_t i = 0; i < 8; i++) {
+	for (std::size_t i = 0; i < N; i++) {
 		const std::size_t index = std::min(i, m_size - 1);
 		Triangle triangle(*(begin + index));
 		m_ps[0].set(triangle.ps[0], i);
@@ -387,7 +387,7 @@ std::size_t PackedTriangle<16>::intersect_distance(RayExt &ray) const noexcept {
 
 	__m512 offset_zs = _mm512_loadu_ps(m_offset.zs().data());
 
-	const auto dotx8 = [&](const __m512 &xs1, const __m512 &ys1,
+	const auto dotx16 = [&](const __m512 &xs1, const __m512 &ys1,
 		const __m512 &zs1, const __m512 &xs2,
 		const __m512 &ys2, const __m512 &zs2) {
 		__m512 ret = _mm512_mul_ps(xs1, xs2);
@@ -400,8 +400,8 @@ std::size_t PackedTriangle<16>::intersect_distance(RayExt &ray) const noexcept {
 	__m512 ps_zs = _mm512_loadu_ps(m_ps[2].zs().data());
 
 	__m512 os = _mm512_add_ps(offset_zs,
-		dotx8(ps_xs, ps_ys, ps_zs, pos_xs, pos_ys, pos_zs));
-	__m512 ns = dotx8(ps_xs, ps_ys, ps_zs, dir_xs, dir_ys, dir_zs);
+		dotx16(ps_xs, ps_ys, ps_zs, pos_xs, pos_ys, pos_zs));
+	__m512 ns = dotx16(ps_xs, ps_ys, ps_zs, dir_xs, dir_ys, dir_zs);
 	__m512 ts = _mm512_sub_ps(_mm512_set1_ps(0.0), _mm512_div_ps(os, ns));
 
 	ps_xs = _mm512_loadu_ps(m_ps[0].xs().data());
@@ -410,8 +410,8 @@ std::size_t PackedTriangle<16>::intersect_distance(RayExt &ray) const noexcept {
 
 	__m512 offset_xs = _mm512_loadu_ps(m_offset.xs().data());
 	os = _mm512_add_ps(offset_xs,
-		dotx8(ps_xs, ps_ys, ps_zs, pos_xs, pos_ys, pos_zs));
-	ns = dotx8(ps_xs, ps_ys, ps_zs, dir_xs, dir_ys, dir_zs);
+		dotx16(ps_xs, ps_ys, ps_zs, pos_xs, pos_ys, pos_zs));
+	ns = dotx16(ps_xs, ps_ys, ps_zs, dir_xs, dir_ys, dir_zs);
 	__m512 us = _mm512_fmadd_ps(ts, ns, os);
 
 	ps_xs = _mm512_loadu_ps(m_ps[1].xs().data());
@@ -420,8 +420,8 @@ std::size_t PackedTriangle<16>::intersect_distance(RayExt &ray) const noexcept {
 
 	__m512 offset_ys = _mm512_loadu_ps(m_offset.ys().data());
 	os = _mm512_add_ps(offset_ys,
-		dotx8(ps_xs, ps_ys, ps_zs, pos_xs, pos_ys, pos_zs));
-	ns = dotx8(ps_xs, ps_ys, ps_zs, dir_xs, dir_ys, dir_zs);
+		dotx16(ps_xs, ps_ys, ps_zs, pos_xs, pos_ys, pos_zs));
+	ns = dotx16(ps_xs, ps_ys, ps_zs, dir_xs, dir_ys, dir_zs);
 	__m512 vs = _mm512_fmadd_ps(ts, ns, os);
 
 	__m512 tnears = _mm512_set1_ps(ray.tnear);
@@ -443,8 +443,8 @@ std::size_t PackedTriangle<16>::intersect_distance(RayExt &ray) const noexcept {
 	}
 	else {
 		std::size_t index = InvalidIndex;
-		std::array<float, 8> buf;
-		_mm512_store_ps(buf.data(), ts);
+		std::array<float, 16> buf;
+		_mm512_storeu_ps(buf.data(), ts);
 		for (int i = 0; i < m_size; i++) {
 			if (((mask & (1 << i)) != 0) && buf[i] < ray.tfar) {
 				index = i;
@@ -452,9 +452,9 @@ std::size_t PackedTriangle<16>::intersect_distance(RayExt &ray) const noexcept {
 			}
 		}
 		if (index != InvalidIndex) {
-			_mm512_store_ps(buf.data(), us);
+			_mm512_storeu_ps(buf.data(), us);
 			ray.u = buf[index];
-			_mm512_store_ps(buf.data(), vs);
+			_mm512_storeu_ps(buf.data(), vs);
 			ray.v = buf[index];
 		}
 		return index;
