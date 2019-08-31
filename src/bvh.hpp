@@ -158,6 +158,53 @@ private:
 		node_index_t node_size_in_children;
 	};
 
+	struct Nodex16 {
+
+		using leaf_index_t = std::uint8_t;
+
+		static constexpr leaf_index_t LeafID = std::numeric_limits<leaf_index_t>::max();
+
+		Nodex16(const std::vector<Node*>& node_list) {
+			std::vector<AABB*> aabb_list;
+			for (std::size_t i = 0; i < 8; i++) {
+				const std::size_t index = std::min(i, node_list.size() - 1);
+				aabb_list.push_back(&node_list[index]->aabb);
+			}
+			aabb.construct(aabb_list);
+			node_size_in_children = node_list.size();
+		}
+
+		Nodex16(Nodex16&& src) {
+			self = src.self;
+			std::copy(src.children.begin(), src.children.end(), children.begin());
+			node_size_in_children = src.node_size_in_children;
+			aabb = std::forward<PackedAABBx16>(src.aabb);
+		}
+
+		void operator=(Nodex16&& src) {
+			self = src.self;
+			std::copy(src.children.begin(), src.children.end(), children.begin());
+			node_size_in_children = src.node_size_in_children;
+			aabb = std::forward<PackedAABBx16>(src.aabb);
+		}
+
+		bool is_leaf(const std::size_t index) const noexcept {
+			return children[index] < 0;
+		}
+
+		node_index_t leaf_index(const std::size_t index) const noexcept {
+#ifdef DEBUG
+			assert(is_leaf(index));
+#endif
+			return -children[index];
+		};
+
+		PackedAABBx16 aabb;
+		std::array<node_index_t, 16> children;
+		node_index_t self;
+		node_index_t node_size_in_children;
+	};
+
 	struct Range {
 
 		meshid_index_t from;
@@ -235,7 +282,7 @@ private:
 
 	// ノード
 	std::vector<Node> m_node_list;
-	std::vector<Nodex8> m_nodex8_list;
+	std::vector<Nodex16> m_nodex16_list;
 	std::vector<LeafNode> m_leafnode_list;
 	MeshTriangleList m_mesh_list;
 	std::vector<PackedTrianglex8> m_packed_triangle_list;
@@ -250,7 +297,7 @@ void SimpleBVH::collect_node_to_pack(node_index_t old_node_index, std::vector<no
 	children.clear();
 	std::queue<std::size_t> que;
 	que.push(old_node_index);
-	while (!que.empty() && que.size() + children.size() < 8) {
+	while (!que.empty() && que.size() + children.size() < 16) {
 		auto node = que.front();
 		que.pop();
 		if (m_node_list[node].is_leaf()) {
@@ -294,8 +341,8 @@ void SimpleBVH::setup_packed_node() noexcept {
 		for (auto child : children) {
 			node_list.push_back(&m_node_list[child]);
 		}
-		m_nodex8_list.emplace_back(node_list);
-		m_nodex8_list.back().self = packed_node_index;
+		m_nodex16_list.emplace_back(node_list);
+		m_nodex16_list.back().self = packed_node_index;
 
 		// children id の登録
 		for (std::size_t i = 0; i < children.size(); i++) {
@@ -305,9 +352,9 @@ void SimpleBVH::setup_packed_node() noexcept {
 		// root node 以外なら、parent node に今作ったノードを登録
 		if (old_node_index > 0) {
 			const auto packed_parent = packed_parent_node[old_node_index];
-			auto &parent = m_nodex8_list[packed_parent];
+			auto &parent = m_nodex16_list[packed_parent];
 #ifdef DEBUG
-			assert(children_id[old_node_index] < 8);
+			assert(children_id[old_node_index] < 16);
 #endif
 			parent.children[children_id[old_node_index]] = packed_node_index;
 		}
@@ -316,7 +363,7 @@ void SimpleBVH::setup_packed_node() noexcept {
 		for (std::size_t i = 0; i < children.size(); i++) {
 			if (node_list[i]->is_leaf()) {
 				// leaf 判定を引き継ぐために、負の値にする必要がある
-				m_nodex8_list.back().children[i] = -node_list[i]->leaf_index();
+				m_nodex16_list.back().children[i] = -node_list[i]->leaf_index();
 			}
 			else {
 				que.push(node_list[i]->self);
@@ -351,9 +398,9 @@ void SimpleBVH::setup_packed_triangle() noexcept {
 			leaf_node.start_mesh_index = leaf_node.leaf_meshid_from;
 
 			for (meshid_index_t mesh_index = leaf_node.leaf_meshid_from;
-				mesh_index < leaf_node.leaf_meshid_to; mesh_index += 8) {
+				mesh_index < leaf_node.leaf_meshid_to; mesh_index += 16) {
 				const auto to_index =
-					std::min<meshid_index_t>(mesh_index + 8, leaf_node.leaf_meshid_to);
+					std::min<meshid_index_t>(mesh_index + 16, leaf_node.leaf_meshid_to);
 				m_packed_triangle_list.emplace_back(m_mesh_list.begin() + mesh_index,
 					m_mesh_list.begin() + to_index);
 				packed_leaf_index++;
@@ -593,7 +640,7 @@ void SimpleBVH::validate_order(const std::vector<node_index_t> &order) {
 }
 
 void SimpleBVH::collect_range_parallel(int node_index, std::vector<std::pair<int, int>> &result) {
-	const auto &node = m_nodex8_list[node_index];
+	const auto &node = m_nodex16_list[node_index];
 	for (std::size_t i = 0; i < node.node_size_in_children; i++) {
 		if (node.is_leaf(i)) {
 			const auto &leaf_node = m_leafnode_list[node.leaf_index(i)];
@@ -652,29 +699,28 @@ bool SimpleBVH::intersect(RayExt &ray) const {
 bool SimpleBVH::intersectAnySub(node_index_t nodeIndex, RayExt &ray,
 	meshid_index_t *hitMeshIndex) const {
 
-	const auto &node = m_nodex8_list[nodeIndex];
+	const auto &node = m_nodex16_list[nodeIndex];
 
 	constexpr int NOT_EQUAL = 4;
 
-	__m256 distance = node.aabb.intersect_distance(ray, ray.tfar);
-	__m256 valid_mask = _mm256_cmp_ps(distance, _mm256_set1_ps(PackedAABBx8::InvalidDistance), NOT_EQUAL);
-	const auto bitmask = _mm256_movemask_ps(valid_mask);
-	std::uint64_t packed_mask = _pdep_u64(bitmask & ((1 << node.node_size_in_children) - 1), 0x0101010101010101) * 0xFF;
+	auto distance = node.aabb.intersect_distance(ray, ray.tfar);
+	auto bitmask = _mm512_cmp_ps_mask(distance, _mm512_set1_ps(PackedAABBx8::InvalidDistance), NOT_EQUAL);
+	std::uint64_t packed_mask = _pdep_u64(bitmask & ((1 << node.node_size_in_children) - 1), 0x1111111111111111ull) * 0xF;
 
-	std::uint64_t extracted_index = _pext_u64(0x0706050403020100, packed_mask);
+	std::uint64_t extracted_index = _pext_u64(0xfedcba9876543210, packed_mask);
 
 	const int count = __popcnt64(bitmask);
 
-	FixedVector<std::size_t, 8> valid_index;
+	FixedVector<std::size_t, 16> valid_index;
 	for (std::size_t i = 0; i < count; i++) {
 		valid_index.push_back(extracted_index & 0xff);
-		extracted_index >>= 8;
+		extracted_index >>= 4;
 	}
 
 	if (!valid_index.empty()) {
 
-		std::array<float, 8> distance_array;
-		_mm256_storeu_ps(distance_array.data(), distance);
+		std::array<float, 16> distance_array;
+		_mm512_storeu_ps(distance_array.data(), distance);
 
 		if (valid_index.size() > 1) {
 			std::sort(valid_index.begin(), valid_index.end(), [&](std::size_t i1, std::size_t i2) {
@@ -823,7 +869,7 @@ void SimpleBVH::visit_for_reorder(node_index_t old_node_index,
 
 void SimpleBVH::reorder_leafnode() noexcept
 {
-	// m_nodex8_list のアクセス順に leaf node の order を取得
+	// m_nodex16_list のアクセス順に leaf node の order を取得
 	std::vector<node_index_t> order;
 	std::queue<node_index_t> que;
 	que.push(0);
@@ -835,7 +881,7 @@ void SimpleBVH::reorder_leafnode() noexcept
 	{
 		auto node_index = que.front();
 		que.pop();
-		auto &node = m_nodex8_list[node_index];
+		auto &node = m_nodex16_list[node_index];
 
 		for (auto idx = 0; idx < node.node_size_in_children; idx++)
 		{
@@ -938,30 +984,30 @@ void SimpleBVH::reorder_node(const std::size_t max_depth) noexcept {
 bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 	meshid_index_t *hitMeshIndex) const {
 
-	const auto &node = m_nodex8_list[nodeIndex];
+	const auto &node = m_nodex16_list[nodeIndex];
 
 	constexpr int NOT_EQUAL = 4;
 
-	__m256 distance = node.aabb.intersect_distance(ray, ray.tfar);
-	__m256 valid_mask = _mm256_cmp_ps(distance, _mm256_set1_ps(PackedAABBx8::InvalidDistance), NOT_EQUAL);
-	const auto bitmask = _mm256_movemask_ps(valid_mask);
-	std::uint64_t packed_mask = _pdep_u64(bitmask & ((1 << node.node_size_in_children) - 1), 0x0101010101010101) * 0xFF;
+	auto distance = node.aabb.intersect_distance(ray, ray.tfar);
+	auto bitmask = _mm512_cmp_ps_mask(distance, _mm512_set1_ps(PackedAABBx8::InvalidDistance), NOT_EQUAL);
+	std::uint64_t packed_mask = _pdep_u64(bitmask & ((1 << node.node_size_in_children) - 1), 0x1111111111111111ull) * 0xF;
 
-	std::uint64_t extracted_index = _pext_u64(0x0706050403020100, packed_mask);
+	std::uint64_t extracted_index = _pext_u64(0xfedcba9876543210, packed_mask);
+
 	const int count = __popcnt64(bitmask);
 
-	FixedVector<std::size_t, 8> valid_index;
+	FixedVector<std::size_t, 16> valid_index;
 	for (std::size_t i = 0; i < count; i++) {
 		valid_index.push_back(extracted_index & 0xff);
-		extracted_index >>= 8;
+		extracted_index >>= 4;
 	}
 
 	if (valid_index.empty()) {
 		return false;
 	}
 	else {
-		std::array<float, 8> distance_array;
-		_mm256_storeu_ps(distance_array.data(), distance);
+		std::array<float, 16> distance_array;
+		_mm512_storeu_ps(distance_array.data(), distance);
 
 		if (valid_index.size() > 1) {
 			std::sort(valid_index.begin(), valid_index.end(), [&](std::size_t i1, std::size_t i2) {
@@ -980,7 +1026,7 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 							m_packed_triangle_list[mesh_index].intersect_distance(ray);
 						if (subindex != PackedTrianglex8::InvalidIndex) {
 							*hitMeshIndex = leaf_node.start_mesh_index +
-								8 * (mesh_index - leaf_node.leaf_meshid_from) + subindex;
+								16 * (mesh_index - leaf_node.leaf_meshid_from) + subindex;
 							success = true;
 						}
 					}
