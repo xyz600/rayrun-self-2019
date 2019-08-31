@@ -478,10 +478,11 @@ namespace vector {
 
 	using Vec3 = Point3F;
 
-	template <typename T, std::size_t D> class PackedPoint {
+	template <typename T, std::size_t D, std::size_t N>
+	class PackedPoint {
 	public:
 		using value_type = T;
-		using PackedValue = std::array<T, 8>;
+		using PackedValue = std::array<T, N>;
 
 		void set(const Point<T, D> &val, const std::size_t index) noexcept;
 		Point<T, D> get(const std::size_t index) const noexcept;
@@ -498,16 +499,16 @@ namespace vector {
 		std::array<PackedValue, D> m_data;
 	};
 
-	template <typename T, std::size_t D>
-	void PackedPoint<T, D>::set(const Point<T, D> &val,
+	template <typename T, std::size_t D, std::size_t N>
+	void PackedPoint<T, D, N>::set(const Point<T, D> &val,
 		const std::size_t index) noexcept {
 		for (std::size_t dim = 0; dim < D; dim++) {
 			m_data[dim][index] = val[dim];
 		}
 	}
 
-	template <typename T, std::size_t D>
-	Point<T, D> PackedPoint<T, D>::get(const std::size_t index) const noexcept {
+	template <typename T, std::size_t D, std::size_t N>
+	Point<T, D> PackedPoint<T, D, N>::get(const std::size_t index) const noexcept {
 		Point<T, D> ret;
 		for (std::size_t dim = 0; dim < D; dim++) {
 			ret[dim] = m_data[dim][index];
@@ -515,37 +516,38 @@ namespace vector {
 		return ret;
 	}
 
-	template <typename T, std::size_t D>
-	const typename PackedPoint<T, D>::PackedValue &PackedPoint<T, D>::
+	template <typename T, std::size_t D, std::size_t N>
+	const typename PackedPoint<T, D, N>::PackedValue &PackedPoint<T, D, N>::
 		operator[](const std::size_t dimension) const noexcept {
 		return m_data[dimension];
 	}
 
-	template <typename T, std::size_t D>
-	const typename PackedPoint<T, D>::PackedValue &PackedPoint<T, D>::xs() const
+	template <typename T, std::size_t D, std::size_t N>
+	const typename PackedPoint<T, D, N>::PackedValue &PackedPoint<T, D, N>::xs() const
 		noexcept {
 		return m_data[0];
 	}
 
-	template <typename T, std::size_t D>
-	const typename PackedPoint<T, D>::PackedValue &PackedPoint<T, D>::ys() const
+	template <typename T, std::size_t D, std::size_t N>
+	const typename PackedPoint<T, D, N>::PackedValue &PackedPoint<T, D, N>::ys() const
 		noexcept {
 		return m_data[1];
 	}
 
-	template <typename T, std::size_t D>
-	const typename PackedPoint<T, D>::PackedValue &PackedPoint<T, D>::zs() const
+	template <typename T, std::size_t D, std::size_t N>
+	const typename PackedPoint<T, D, N>::PackedValue &PackedPoint<T, D, N>::zs() const
 		noexcept {
 		return m_data[2];
 	}
 
-	template <typename T, std::size_t D>
-	void PackedPoint<T, D>::copy_from(const PackedPoint &src) noexcept {
+	template <typename T, std::size_t D, std::size_t N>
+	void PackedPoint<T, D, N>::copy_from(const PackedPoint &src) noexcept {
 		for (std::size_t i = 0; i < D; i++) {
 			std::copy(src.m_data[i].begin(), src.m_data[i].end(), m_data[i].begin());
 		}
 	}
 
-	using Vec3x8 = PackedPoint<float, 3>;
+	using Vec3x8 = PackedPoint<float, 3, 8>;
+	using Vec3x16 = PackedPoint<float, 3, 16>;
 
 } // namespace vector
