@@ -547,6 +547,9 @@ namespace vector {
 		}
 	}
 
+	template<std::size_t N>
+	using PackedVec3 = PackedPoint<float, 3, N>;
+
 	using Vec3x8 = PackedPoint<float, 3, 8>;
 	using Vec3x16 = PackedPoint<float, 3, 16>;
 

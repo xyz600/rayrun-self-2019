@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <vector>
 
-using vector::Vec3, vector::Vec3x8;
+using vector::Vec3, vector::PackedVec3, vector::Vec3x8, vector::Vec3x16;
 
 struct Face {
 public:
@@ -174,12 +174,12 @@ MeshTriangle &MeshTriangleList::operator[](const std::size_t index) noexcept {
 	return m_mesh_list[index];
 }
 
-class PackedTriangle {
+class Triangle {
 public:
 	static constexpr float InvalidDistance =
 		std::numeric_limits<float>::infinity();
 
-	PackedTriangle(const MeshTriangle &src) noexcept;
+	Triangle(const MeshTriangle &src) noexcept;
 	bool intersect(RayExt &ray) const noexcept;
 	float intersect_distance(RayExt &ray) const noexcept;
 
@@ -187,7 +187,7 @@ public:
 	Vec3 offset;
 };
 
-PackedTriangle::PackedTriangle(const MeshTriangle &src) noexcept {
+Triangle::Triangle(const MeshTriangle &src) noexcept {
 	Matrix4x4F p;
 	const Vec3 d1 = src.vertex(1) - src.vertex(0);
 	const Vec3 d2 = src.vertex(2) - src.vertex(0);
@@ -212,11 +212,11 @@ PackedTriangle::PackedTriangle(const MeshTriangle &src) noexcept {
 	}
 }
 
-bool PackedTriangle::intersect(RayExt &ray) const noexcept {
+bool Triangle::intersect(RayExt &ray) const noexcept {
 	return intersect_distance(ray) != InvalidDistance;
 }
 
-float PackedTriangle::intersect_distance(RayExt &ray) const noexcept {
+float Triangle::intersect_distance(RayExt &ray) const noexcept {
 	Vec3 o, n;
 	for (std::size_t i = 0; i < 3; i++) {
 		o[i] = vector::dot(ps[i], ray.pos);
@@ -239,7 +239,8 @@ float PackedTriangle::intersect_distance(RayExt &ray) const noexcept {
 	}
 }
 
-class PackedTrianglex8 {
+template<std::size_t N>
+class PackedTriangle {
 public:
 
 	using meshid_index_t = std::int32_t;
@@ -250,7 +251,7 @@ public:
 	static constexpr meshid_index_t InvalidIndex =
 		std::numeric_limits<meshid_index_t>::max();
 
-	PackedTrianglex8::PackedTrianglex8(
+	PackedTriangle(
 		MeshTriangleList::const_iterator begin,
 		MeshTriangleList::const_iterator end) noexcept;
 
@@ -259,20 +260,22 @@ public:
 	std::size_t size() const noexcept;
 
 private:
-	std::array<Vec3x8, 3> m_ps;
-	Vec3x8 m_offset;
+	std::array<PackedVec3<N>, 3> m_ps;
+	PackedVec3<N> m_offset;
 	std::size_t m_size;
 };
 
-std::size_t PackedTrianglex8::size() const noexcept { return m_size; }
+template<std::size_t N>
+std::size_t PackedTriangle<N>::size() const noexcept { return m_size; }
 
-PackedTrianglex8::PackedTrianglex8(
+template<std::size_t N>
+PackedTriangle<N>::PackedTriangle(
 	MeshTriangleList::const_iterator begin,
 	MeshTriangleList::const_iterator end) noexcept
 	: m_size(std::distance(begin, end)) {
 	for (std::size_t i = 0; i < 8; i++) {
 		const std::size_t index = std::min(i, m_size - 1);
-		PackedTriangle triangle(*(begin + index));
+		Triangle triangle(*(begin + index));
 		m_ps[0].set(triangle.ps[0], i);
 		m_ps[1].set(triangle.ps[1], i);
 		m_ps[2].set(triangle.ps[2], i);
@@ -280,7 +283,13 @@ PackedTrianglex8::PackedTrianglex8(
 	}
 }
 
-std::size_t PackedTrianglex8::intersect_distance(RayExt &ray) const noexcept {
+template<std::size_t N>
+std::size_t PackedTriangle<N>::intersect_distance(RayExt &ray) const noexcept {
+	static_assert(false);
+}
+
+template<>
+std::size_t PackedTriangle<8>::intersect_distance(RayExt &ray) const noexcept {
 	__m256 pos_xs = _mm256_set1_ps(ray.pos[0]);
 	__m256 pos_ys = _mm256_set1_ps(ray.pos[1]);
 	__m256 pos_zs = _mm256_set1_ps(ray.pos[2]);
@@ -365,3 +374,93 @@ std::size_t PackedTrianglex8::intersect_distance(RayExt &ray) const noexcept {
 		return index;
 	}
 }
+
+template<>
+std::size_t PackedTriangle<16>::intersect_distance(RayExt &ray) const noexcept {
+	__m256 pos_xs = _mm256_set1_ps(ray.pos[0]);
+	__m256 pos_ys = _mm256_set1_ps(ray.pos[1]);
+	__m256 pos_zs = _mm256_set1_ps(ray.pos[2]);
+
+	__m256 dir_xs = _mm256_set1_ps(ray.dir[0]);
+	__m256 dir_ys = _mm256_set1_ps(ray.dir[1]);
+	__m256 dir_zs = _mm256_set1_ps(ray.dir[2]);
+
+	__m256 offset_zs = _mm256_loadu_ps(m_offset.zs().data());
+
+	const auto dotx8 = [&](const __m256 &xs1, const __m256 &ys1,
+		const __m256 &zs1, const __m256 &xs2,
+		const __m256 &ys2, const __m256 &zs2) {
+		__m256 ret = _mm256_mul_ps(xs1, xs2);
+		ret = _mm256_fmadd_ps(ys1, ys2, ret);
+		return _mm256_fmadd_ps(zs1, zs2, ret);
+	};
+
+	__m256 ps_xs = _mm256_loadu_ps(m_ps[2].xs().data());
+	__m256 ps_ys = _mm256_loadu_ps(m_ps[2].ys().data());
+	__m256 ps_zs = _mm256_loadu_ps(m_ps[2].zs().data());
+
+	__m256 os = _mm256_add_ps(offset_zs,
+		dotx8(ps_xs, ps_ys, ps_zs, pos_xs, pos_ys, pos_zs));
+	__m256 ns = dotx8(ps_xs, ps_ys, ps_zs, dir_xs, dir_ys, dir_zs);
+	__m256 ts = _mm256_sub_ps(_mm256_set1_ps(0.0), _mm256_div_ps(os, ns));
+
+	ps_xs = _mm256_loadu_ps(m_ps[0].xs().data());
+	ps_ys = _mm256_loadu_ps(m_ps[0].ys().data());
+	ps_zs = _mm256_loadu_ps(m_ps[0].zs().data());
+
+	__m256 offset_xs = _mm256_loadu_ps(m_offset.xs().data());
+	os = _mm256_add_ps(offset_xs,
+		dotx8(ps_xs, ps_ys, ps_zs, pos_xs, pos_ys, pos_zs));
+	ns = dotx8(ps_xs, ps_ys, ps_zs, dir_xs, dir_ys, dir_zs);
+	__m256 us = _mm256_fmadd_ps(ts, ns, os);
+
+	ps_xs = _mm256_loadu_ps(m_ps[1].xs().data());
+	ps_ys = _mm256_loadu_ps(m_ps[1].ys().data());
+	ps_zs = _mm256_loadu_ps(m_ps[1].zs().data());
+
+	__m256 offset_ys = _mm256_loadu_ps(m_offset.ys().data());
+	os = _mm256_add_ps(offset_ys,
+		dotx8(ps_xs, ps_ys, ps_zs, pos_xs, pos_ys, pos_zs));
+	ns = dotx8(ps_xs, ps_ys, ps_zs, dir_xs, dir_ys, dir_zs);
+	__m256 vs = _mm256_fmadd_ps(ts, ns, os);
+
+	__m256 tnears = _mm256_set1_ps(ray.tnear);
+	__m256 tfars = _mm256_set1_ps(ray.tfar);
+	__m256 zeros = _mm256_set1_ps(0.0);
+	__m256 ones = _mm256_set1_ps(1.0);
+
+	constexpr int LESS_THAN = 2;
+
+	__m256 mask = _mm256_cmp_ps(tnears, ts, LESS_THAN);
+	mask = _mm256_and_ps(mask, _mm256_cmp_ps(ts, tfars, LESS_THAN));
+	mask = _mm256_and_ps(mask, _mm256_cmp_ps(zeros, us, LESS_THAN));
+	mask = _mm256_and_ps(mask, _mm256_cmp_ps(zeros, vs, LESS_THAN));
+	mask = _mm256_and_ps(mask,
+		_mm256_cmp_ps(_mm256_add_ps(us, vs), ones, LESS_THAN));
+
+	const int packed_mask = _mm256_movemask_ps(mask);
+	if (packed_mask == 0) {
+		return InvalidIndex;
+	}
+	else {
+		std::size_t index = InvalidIndex;
+		std::array<float, 8> buf;
+		_mm256_store_ps(buf.data(), ts);
+		for (int i = 0; i < m_size; i++) {
+			if (((packed_mask & (1 << i)) != 0) && buf[i] < ray.tfar) {
+				index = i;
+				ray.tfar = buf[i];
+			}
+		}
+		if (index != InvalidIndex) {
+			_mm256_store_ps(buf.data(), us);
+			ray.u = buf[index];
+			_mm256_store_ps(buf.data(), vs);
+			ray.v = buf[index];
+		}
+		return index;
+	}
+}
+
+using PackedTrianglex8 = PackedTriangle<8>;
+using PackedTrianglex16 = PackedTriangle<16>;
