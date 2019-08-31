@@ -238,3 +238,108 @@ __m256 PackedAABBx8::intersect_distance(const RayExt &ray, float currentIntersec
 	__m256 distances = _mm256_blendv_ps(_mm256_set1_ps(InvalidDistance), min_ts_xs, mask);
 	return distances;
 }
+
+class PackedAABBx16 {
+public:
+
+	using meshid_index_t = PackedTrianglex16::meshid_index_t;
+
+	static constexpr float InvalidDistance =
+		AABB::InvalidDistance;
+
+	static constexpr meshid_index_t InvalidIndex =
+		std::numeric_limits<meshid_index_t>::max();
+
+	PackedAABBx16();
+	PackedAABBx16(PackedAABBx16 &&src);
+
+	void operator=(PackedAABBx16 &&src);
+
+	void construct(const std::vector<AABB *> &aabb_list);
+
+	__m512 intersect_distance(const RayExt &ray, float currentIntersectT) const noexcept;
+
+	Vec3x16 min_position;
+	Vec3x16 max_position;
+private:
+	std::size_t m_size;
+};
+
+PackedAABBx16::PackedAABBx16() {}
+
+PackedAABBx16::PackedAABBx16(PackedAABBx16 &&src) {
+	min_position.copy_from(src.min_position);
+	max_position.copy_from(src.max_position);
+	m_size = src.m_size;
+}
+
+void PackedAABBx16::operator=(PackedAABBx16 &&src) {
+	min_position.copy_from(src.min_position);
+	max_position.copy_from(src.max_position);
+	m_size = src.m_size;
+}
+
+void PackedAABBx16::construct(const std::vector<AABB *> &aabb_list) {
+	m_size = aabb_list.size();
+	for (std::size_t i = 0; i < 8; i++) {
+		const std::size_t index = std::min(m_size - 1, i);
+		const auto &aabb = *aabb_list[index];
+		min_position.set(aabb.min(), i);
+		max_position.set(aabb.max(), i);
+	}
+}
+
+__m512 PackedAABBx16::intersect_distance(const RayExt &ray, float currentIntersectT) const noexcept {
+
+	auto setup_ts = [&](const Vec3x8::PackedValue &min_data, const Vec3x8::PackedValue &max_data, const float pos, const float dinv, const bool sign) {
+
+		__m256 mins = _mm256_loadu_ps(min_data.data());
+		__m256 maxs = _mm256_loadu_ps(max_data.data());
+
+		__m256 poss = _mm256_set1_ps(pos);
+		__m256 dinvs = _mm256_set1_ps(dinv);
+
+		if (sign) {
+			return std::make_pair(
+				_mm256_mul_ps(dinvs, _mm256_sub_ps(maxs, poss)),
+				_mm256_mul_ps(dinvs, _mm256_sub_ps(mins, poss))
+			);
+		}
+		else {
+			return std::make_pair(
+				_mm256_mul_ps(dinvs, _mm256_sub_ps(mins, poss)),
+				_mm256_mul_ps(dinvs, _mm256_sub_ps(maxs, poss))
+			);
+		}
+	};
+
+	constexpr int LESS_THAN = 2;
+	constexpr int EQUAL = 0;
+
+	auto[min_ts_xs, max_ts_xs] = setup_ts(min_position.xs(), max_position.xs(), ray.pos.x(), ray.dinv.x(), ray.sign[0]);
+
+	auto[min_ts_ys, max_ts_ys] = setup_ts(min_position.ys(), max_position.ys(), ray.pos.y(), ray.dinv.y(), ray.sign[1]);
+
+	__m256 mask = _mm256_and_ps(_mm256_cmp_ps(min_ts_xs, max_ts_ys, LESS_THAN), _mm256_cmp_ps(min_ts_ys, max_ts_xs, LESS_THAN));
+
+	min_ts_xs = _mm256_max_ps(min_ts_xs, min_ts_ys);
+	max_ts_xs = _mm256_min_ps(max_ts_xs, max_ts_ys);
+
+	auto[min_ts_zs, max_ts_zs] = setup_ts(min_position.zs(), max_position.zs(), ray.pos.z(), ray.dinv.z(), ray.sign[2]);
+
+	mask = _mm256_and_ps(mask, _mm256_and_ps(_mm256_cmp_ps(min_ts_xs, max_ts_zs, LESS_THAN), _mm256_cmp_ps(min_ts_zs, max_ts_xs, LESS_THAN)));
+
+	min_ts_xs = _mm256_max_ps(min_ts_xs, min_ts_zs);
+	max_ts_xs = _mm256_min_ps(max_ts_xs, max_ts_zs);
+
+	mask = _mm256_and_ps(
+		mask,
+		_mm256_and_ps(
+			_mm256_cmp_ps(min_ts_xs, _mm256_set1_ps(std::min<float>(currentIntersectT, ray.tfar)), LESS_THAN),
+			_mm256_cmp_ps(_mm256_set1_ps(ray.tnear), max_ts_xs, LESS_THAN)
+		)
+	);
+
+	__m256 distances = _mm256_blendv_ps(_mm256_set1_ps(InvalidDistance), min_ts_xs, mask);
+	return distances;
+}
