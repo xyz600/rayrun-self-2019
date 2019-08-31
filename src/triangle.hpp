@@ -4,7 +4,7 @@
 #include "matrix.hpp"
 #include "vec.hpp"
 
-#include <immintrin.h>
+#include <intrin.h>
 #include <array>
 #include <cstddef>
 #include <cstdint>

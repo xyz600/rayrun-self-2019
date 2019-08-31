@@ -4,7 +4,7 @@
 #include "triangle.hpp"
 #include "vec.hpp"
 
-#include <immintrin.h>
+#include <intrin.h>
 
 using vector::Vec3;
 
