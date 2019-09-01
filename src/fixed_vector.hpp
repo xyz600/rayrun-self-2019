@@ -25,12 +25,27 @@ public:
 
 	void push_back(T val) noexcept;
 
+	T* data() noexcept;
+
+	void resize(std::size_t size) noexcept;
+
 	bool empty() const noexcept;
 
 private:
 	std::array<T, reserved> m_array;
 	std::size_t m_size;
 };
+
+template<typename T, std::size_t reserved>
+void FixedVector<T, reserved>::resize(std::size_t size) noexcept {
+	m_size = size;
+}
+
+
+template<typename T, std::size_t reserved>
+T* FixedVector<T, reserved>::data() noexcept {
+	return m_array.data();
+}
 
 template<typename T, std::size_t reserved>
 FixedVector<T, reserved>::FixedVector() noexcept {

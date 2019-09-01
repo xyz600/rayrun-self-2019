@@ -711,11 +711,15 @@ bool SimpleBVH::intersectAnySub(node_index_t nodeIndex, RayExt &ray,
 
 	const int count = __popcnt64(bitmask);
 
-	FixedVector<std::size_t, 16> valid_index;
-	for (std::size_t i = 0; i < count; i++) {
-		valid_index.push_back(extracted_index & 0xf);
-		extracted_index >>= 4;
-	}
+	FixedVector<std::uint32_t, 16> valid_index;
+	_mm512_storeu_epi32(
+		valid_index.data(),
+		_mm512_cvtepi8_epi32(_mm_set_epi64x(
+			_pdep_u64(extracted_index >> 32, 0x0f0f0f0f0f0f0f0f),
+			_pdep_u64(extracted_index & 0xffffffff, 0x0f0f0f0f0f0f0f0f)
+		))
+	);
+	valid_index.resize(count);
 
 	if (!valid_index.empty()) {
 
@@ -994,11 +998,16 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 
 	const int count = __popcnt64(bitmask);
 
-	FixedVector<std::size_t, 16> valid_index;
-	for (std::size_t i = 0; i < count; i++) {
-		valid_index.push_back(extracted_index & 0xf);
-		extracted_index >>= 4;
-	}
+	FixedVector<std::uint32_t, 16> valid_index;
+
+	_mm512_storeu_epi32(
+		valid_index.data(),
+		_mm512_cvtepi8_epi32(_mm_set_epi64x(
+			_pdep_u64(extracted_index >> 32, 0x0f0f0f0f0f0f0f0f),
+			_pdep_u64(extracted_index & 0xffffffff, 0x0f0f0f0f0f0f0f0f)
+		))
+	);
+	valid_index.resize(count);
 
 	if (valid_index.empty()) {
 		return false;
