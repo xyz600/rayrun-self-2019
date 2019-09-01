@@ -711,7 +711,7 @@ bool SimpleBVH::intersectAnySub(node_index_t nodeIndex, RayExt &ray,
 	if (count > 0) {
 		
 		FixedVector<std::uint32_t, 16> valid_index;
-		auto new_indices = bitonic_sort(_mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0), distance);
+		auto new_indices = bitonic_sort(_mm512_min_epi32(_mm512_set1_epi32(node.node_size_in_children - 1), _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)), distance);
 		_mm512_storeu_epi32(valid_index.data(), new_indices);
 		valid_index.resize(count);
 
@@ -980,7 +980,7 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 		_mm512_storeu_ps(distance_array.data(), distance);
 
 		FixedVector<std::uint32_t, 16> valid_index;
-		auto new_indices = bitonic_sort(_mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0), distance);
+		auto new_indices = bitonic_sort(_mm512_min_epi32(_mm512_set1_epi32(node.node_size_in_children - 1), _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)), distance);
 		_mm512_storeu_epi32(valid_index.data(), new_indices);
 		valid_index.resize(count);
 
