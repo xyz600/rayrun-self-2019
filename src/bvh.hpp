@@ -6,6 +6,7 @@
 #include "triangle.hpp"
 #include "vec.hpp"
 #include "fixed_vector.hpp"
+#include "bitonic_sort.hpp"
 
 #include <array>
 #include <atomic>
@@ -705,37 +706,14 @@ bool SimpleBVH::intersectAnySub(node_index_t nodeIndex, RayExt &ray,
 
 	auto distance = node.aabb.intersect_distance(ray, ray.tfar);
 	auto bitmask = _mm512_cmp_ps_mask(distance, _mm512_set1_ps(PackedAABBx16::InvalidDistance), NOT_EQUAL);
-	std::uint64_t packed_mask = _pdep_u64(bitmask & ((1 << node.node_size_in_children) - 1), 0x1111111111111111ull) * 0xF;
-
-	std::uint64_t extracted_index = _pext_u64(0xfedcba9876543210, packed_mask);
-
 	const int count = __popcnt64(bitmask);
 
-	FixedVector<std::uint32_t, 16> valid_index;
-	_mm512_storeu_epi32(
-		valid_index.data(),
-		_mm512_cvtepi8_epi32(_mm_set_epi64x(
-			_pdep_u64(extracted_index >> 32, 0x0f0f0f0f0f0f0f0f),
-			_pdep_u64(extracted_index & 0xffffffff, 0x0f0f0f0f0f0f0f0f)
-		))
-	);
-	valid_index.resize(count);
-
-	if (!valid_index.empty()) {
-
-		std::array<float, 16> distance_array;
-		_mm512_storeu_ps(distance_array.data(), distance);
-
-		if (valid_index.size() > 1) {
-			std::sort(valid_index.begin(), valid_index.end(), [&](std::size_t i1, std::size_t i2) {
-				if (node.is_leaf(i1) != node.is_leaf(i2)) {
-					return node.is_leaf(i1) > node.is_leaf(i2);
-				}
-				else {
-					return distance_array[i1] < distance_array[i2];
-				}
-			});
-		}
+	if (count > 0) {
+		
+		FixedVector<std::uint32_t, 16> valid_index;
+		auto new_indices = bitonic_sort(_mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0), distance);
+		_mm512_storeu_epi32(valid_index.data(), new_indices);
+		valid_index.resize(count);
 
 		for (auto idx : valid_index) {
 			if (node.is_leaf(idx)) {
@@ -992,35 +970,19 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 
 	auto distance = node.aabb.intersect_distance(ray, ray.tfar);
 	auto bitmask = _mm512_cmp_ps_mask(distance, _mm512_set1_ps(PackedAABBx16::InvalidDistance), NOT_EQUAL);
-	std::uint64_t packed_mask = _pdep_u64(bitmask & ((1 << node.node_size_in_children) - 1), 0x1111111111111111ull) * 0xF;
-
-	std::uint64_t extracted_index = _pext_u64(0xfedcba9876543210, packed_mask);
-
 	const int count = __popcnt64(bitmask);
 
-	FixedVector<std::uint32_t, 16> valid_index;
-
-	_mm512_storeu_epi32(
-		valid_index.data(),
-		_mm512_cvtepi8_epi32(_mm_set_epi64x(
-			_pdep_u64(extracted_index >> 32, 0x0f0f0f0f0f0f0f0f),
-			_pdep_u64(extracted_index & 0xffffffff, 0x0f0f0f0f0f0f0f0f)
-		))
-	);
-	valid_index.resize(count);
-
-	if (valid_index.empty()) {
+	if (count == 0) {
 		return false;
 	}
 	else {
 		std::array<float, 16> distance_array;
 		_mm512_storeu_ps(distance_array.data(), distance);
 
-		if (valid_index.size() > 1) {
-			std::sort(valid_index.begin(), valid_index.end(), [&](std::size_t i1, std::size_t i2) {
-				return distance_array[i1] < distance_array[i2];
-			});
-		}
+		FixedVector<std::uint32_t, 16> valid_index;
+		auto new_indices = bitonic_sort(_mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0), distance);
+		_mm512_storeu_epi32(valid_index.data(), new_indices);
+		valid_index.resize(count);
 
 		bool success = false;
 		for (auto idx : valid_index) {
