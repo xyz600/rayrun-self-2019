@@ -349,7 +349,7 @@ std::size_t PackedTrianglex8::intersect_distance(RayExt &ray) const noexcept {
 	else {
 		std::size_t index = InvalidIndex;
 		std::array<float, 8> buf;
-		_mm256_store_ps(buf.data(), ts);
+		_mm256_storeu_ps(buf.data(), ts);
 		for (int i = 0; i < m_size; i++) {
 			if (((packed_mask & (1 << i)) != 0) && buf[i] < ray.tfar) {
 				index = i;
@@ -357,9 +357,9 @@ std::size_t PackedTrianglex8::intersect_distance(RayExt &ray) const noexcept {
 			}
 		}
 		if (index != InvalidIndex) {
-			_mm256_store_ps(buf.data(), us);
+			_mm256_storeu_ps(buf.data(), us);
 			ray.u = buf[index];
-			_mm256_store_ps(buf.data(), vs);
+			_mm256_storeu_ps(buf.data(), vs);
 			ray.v = buf[index];
 		}
 		return index;

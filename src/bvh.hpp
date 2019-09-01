@@ -212,7 +212,7 @@ private:
 	static constexpr node_index_t Invalid =
 		std::numeric_limits<node_index_t>::max();
 
-	static constexpr float CostBoundingBoxIntersect = 1.0;
+	static constexpr float CostBoundingBoxIntersect = 1.2;
 	static constexpr float CostPolygonIntersect = 1.0;
 
 	static constexpr std::int32_t leaf_size_threashold = 16;
@@ -665,11 +665,11 @@ bool SimpleBVH::intersectAnySub(node_index_t nodeIndex, RayExt &ray,
 
 	const int count = __popcnt64(bitmask);
 
-	FixedVector<std::size_t, 8> valid_index;
-	for (std::size_t i = 0; i < count; i++) {
-		valid_index.push_back(extracted_index & 0xff);
-		extracted_index >>= 8;
-	}
+	FixedVector<std::uint32_t, 8> valid_index;
+	_mm256_storeu_epi32(
+		valid_index.data(),
+		_mm256_cvtepi8_epi32(_mm_cvtsi64_si128(extracted_index)));
+	valid_index.resize(count);
 
 	if (!valid_index.empty()) {
 
@@ -950,11 +950,11 @@ bool SimpleBVH::intersectSub(std::int32_t nodeIndex, RayExt &ray,
 	std::uint64_t extracted_index = _pext_u64(0x0706050403020100, packed_mask);
 	const int count = __popcnt64(bitmask);
 
-	FixedVector<std::size_t, 8> valid_index;
-	for (std::size_t i = 0; i < count; i++) {
-		valid_index.push_back(extracted_index & 0xff);
-		extracted_index >>= 8;
-	}
+	FixedVector<std::uint32_t, 8> valid_index;
+	_mm256_storeu_epi32(
+		valid_index.data(),
+		_mm256_cvtepi8_epi32(_mm_cvtsi64_si128(extracted_index)));
+	valid_index.resize(count);
 
 	if (valid_index.empty()) {
 		return false;
