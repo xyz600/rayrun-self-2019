@@ -255,22 +255,25 @@ SimpleBVH::SimpleBVH() {}
 
 void SimpleBVH::collect_node_to_pack(node_index_t old_node_index, std::vector<node_index_t> &children) {
 	children.clear();
-	std::queue<std::size_t> que;
-	que.push(old_node_index);
+
+	std::priority_queue<std::pair<float, std::size_t>> que;
+	
+	que.emplace(m_node_list[old_node_index].aabb.area(), old_node_index);
+
 	while (!que.empty() && que.size() + children.size() < 8) {
-		auto node = que.front();
+		auto [_, node] = que.top();
 		que.pop();
 		if (m_node_list[node].is_leaf()) {
 			children.push_back(node);
 		}
 		else {
-			que.push(m_node_list[node].left);
-			que.push(m_node_list[node].right);
+			que.emplace(m_node_list[m_node_list[node].left].aabb.area(), m_node_list[node].left);
+			que.emplace(m_node_list[m_node_list[node].right].aabb.area(), m_node_list[node].right);
 		}
 	}
 
 	while (!que.empty()) {
-		auto node = que.front();
+		auto [_, node] = que.top();
 		que.pop();
 		children.push_back(node);
 	}
