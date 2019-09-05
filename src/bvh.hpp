@@ -688,12 +688,7 @@ bool SimpleBVH::intersectAnySub(node_index_t nodeIndex, RayExt &ray,
 
 		if (valid_index.size() > 1) {
 			std::sort(valid_index.begin(), valid_index.end(), [&](std::size_t i1, std::size_t i2) {
-				if (node.is_leaf(i1) != node.is_leaf(i2)) {
-					return node.is_leaf(i1) > node.is_leaf(i2);
-				}
-				else {
-					return distance_array[i1] < distance_array[i2];
-				}
+				return distance_array[i1] < distance_array[i2];
 			});
 		}
 
